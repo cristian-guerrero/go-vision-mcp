@@ -1,0 +1,32 @@
+# Compiled binary
+vision-mcp.exe
+vision-mcp
+
+# Models (GGUF files - large, downloaded on demand)
+models/*.gguf
+models/*.tmp
+
+# Downloaded llama-server archives and binaries
+llama-*.zip
+llama-*.tar.gz
+
+# Config (auto-generated, user-specific)
+vision-mcp.json
+
+# Go
+go.sum
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+info.txt
