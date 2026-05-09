@@ -136,6 +136,8 @@ When the MCP client disconnects (stdin closes), `ServeStdio()` returns and `hand
 
 - `installer/path_windows.go` — PATH via `HKCU\Environment` registry + `WM_SETTINGCHANGE`
 - `installer/path_unix.go` — appends to `~/.bashrc` or `~/.zshrc`
+- `main_windows.go` — `showMessageBox()` via Win32 `MessageBoxW` API
+- `main_unix.go` — `showMessageBox()` stub that prints to stderr
 - `mcp/tools.go:clipboardImageDataURI()` — uses PowerShell `System.Windows.Forms.Clipboard` (Windows only)
 
 ## Hardware Detection
