@@ -111,7 +111,7 @@ func osKey() string {
 	}
 }
 
-func DownloadLlamaBinary(asset *ReleaseAsset, destDir string) (string, error) {
+func DownloadLlamaBinary(asset *ReleaseAsset, destDir string, progress ProgressFunc) (string, error) {
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return "", fmt.Errorf("create dest dir: %w", err)
 	}
@@ -119,7 +119,7 @@ func DownloadLlamaBinary(asset *ReleaseAsset, destDir string) (string, error) {
 	fmt.Printf("Downloading %s...\n", asset.Name)
 
 	tmpPath := filepath.Join(destDir, asset.Name)
-	if err := DownloadFile(asset.URL, tmpPath, nil); err != nil {
+	if err := DownloadFile(asset.URL, tmpPath, progress); err != nil {
 		return "", fmt.Errorf("download binary archive: %w", err)
 	}
 	defer os.Remove(tmpPath)
@@ -254,7 +254,7 @@ func executableName(name string) string {
 	return name
 }
 
-func EnsureLlamaBinary(backend, destDir string) (string, error) {
+func EnsureLlamaBinary(backend, destDir string, progress ProgressFunc) (string, error) {
 	binName := executableName("llama-server")
 	binaryPath := filepath.Join(destDir, binName)
 
@@ -278,5 +278,5 @@ func EnsureLlamaBinary(backend, destDir string) (string, error) {
 	}
 
 	fmt.Printf("Found release: %s\n", release.TagName)
-	return DownloadLlamaBinary(asset, destDir)
+	return DownloadLlamaBinary(asset, destDir, progress)
 }

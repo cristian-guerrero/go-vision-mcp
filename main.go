@@ -5,19 +5,28 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"syscall"
+	"time"
+	"unsafe"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/vision-mcp/internal/agentconfig"
 	"github.com/vision-mcp/internal/config"
+	"github.com/vision-mcp/internal/discover"
 	"github.com/vision-mcp/internal/download"
 	"github.com/vision-mcp/internal/hardware"
 	"github.com/vision-mcp/internal/installer"
 	"github.com/vision-mcp/internal/llamaserver"
+	"github.com/vision-mcp/internal/logger"
 	mcptools "github.com/vision-mcp/internal/mcp"
 	"github.com/vision-mcp/internal/setup"
 )
@@ -32,6 +41,8 @@ func main() {
 	downloadOnly := flag.Bool("download", false, "Download/verify models")
 	generateAgent := flag.String("generate-agent-config", "", "Generate agent config file (optional output path)")
 	showVersion := flag.Bool("version", false, "Show version")
+	freeMemory := flag.Bool("free", false, "Free GPU memory by unloading the model")
+	manualConfig := flag.Bool("manual", false, "Configure with existing models and llama-server")
 	flag.Parse()
 
 	if *showVersion {
@@ -51,6 +62,11 @@ func main() {
 
 	if *runUninstall {
 		runUninstallCmd()
+		return
+	}
+
+	if *freeMemory {
+		runFreeMemory()
 		return
 	}
 
@@ -81,13 +97,243 @@ func main() {
 		return
 	}
 
+	if *manualConfig {
+		runManualWizard()
+		return
+	}
+
+	lgr, err := logger.Init()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not initialize logger: %v\n", err)
+	}
+	if lgr != nil {
+		defer lgr.Close()
+	}
+
+	if !isInteractive() {
+		log.Printf("No interactive terminal detected.")
+		showNonInteractiveMessage()
+		os.Exit(0)
+	}
+
+	if !configExists() {
+		showWelcomeMenu()
+		return
+	}
+
 	runServer()
+}
+
+func configExists() bool {
+	if _, err := os.Stat(config.ConfigPath()); err == nil {
+		return true
+	}
+	if _, err := os.Stat(config.PortableConfigPath()); err == nil {
+		return true
+	}
+	return false
+}
+
+func isInteractive() bool {
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (info.Mode() & os.ModeCharDevice) != 0
+}
+
+func showNonInteractiveMessage() {
+	msg := "Vision MCP\n\n" +
+		"To use Vision MCP, run this from a terminal:\n" +
+		"  vision-mcp --status\n" +
+		"  vision-mcp --configure\n" +
+		"  vision-mcp\n\n" +
+		"Log: " + filepath.Join(config.InstallDir(), "vision-mcp.log")
+
+	if runtime.GOOS == "windows" {
+		showMessageBox("Vision MCP", msg)
+	} else {
+		fmt.Fprintln(os.Stderr, msg)
+	}
+}
+
+func showMessageBox(title, msg string) {
+	user32 := syscall.NewLazyDLL("user32.dll")
+	messageBox := user32.NewProc("MessageBoxW")
+
+	titlePtr, _ := syscall.UTF16PtrFromString(title)
+	msgPtr, _ := syscall.UTF16PtrFromString(msg)
+
+	const (
+		MB_OK              = 0x00000000
+		MB_ICONINFORMATION = 0x00000040
+		MB_SETFOREGROUND   = 0x00010000
+	)
+
+	messageBox.Call(
+		0,
+		uintptr(unsafe.Pointer(msgPtr)),
+		uintptr(unsafe.Pointer(titlePtr)),
+		uintptr(MB_OK|MB_ICONINFORMATION|MB_SETFOREGROUND),
+	)
+}
+
+type welcomeModel struct {
+	cursor int
+	choice int
+	done   bool
+	quit   bool
+}
+
+var welcomeOptions = []string{
+	"Quick setup (auto-detect + download)",
+	"Guided wizard (TUI step by step)",
+	"Manual config (use existing models)",
+	"Show status and exit",
+	"Exit",
+}
+
+func (m welcomeModel) Init() tea.Cmd { return nil }
+
+func (m welcomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "q", "ctrl+c":
+			m.quit = true
+			return m, tea.Quit
+
+		case "up", "k":
+			m.cursor = (m.cursor - 1 + len(welcomeOptions)) % len(welcomeOptions)
+
+		case "down", "j":
+			m.cursor = (m.cursor + 1) % len(welcomeOptions)
+
+		case "enter":
+			m.choice = m.cursor + 1
+			m.done = true
+			return m, tea.Quit
+
+		case "1", "2", "3", "4", "5":
+			m.choice = int(msg.String()[0] - '0')
+			m.done = true
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+func (m welcomeModel) View() string {
+	if m.done || m.quit {
+		return ""
+	}
+
+	const boxW = 45
+
+	var s strings.Builder
+	s.WriteString("\n")
+	s.WriteString("┌─────────────────────────────────────────────┐\n")
+
+	lines := []string{
+		"           Vision MCP - Setup",
+		"",
+		"  No configuration found.",
+		"",
+		"  What would you like to do?",
+		"",
+	}
+	for _, line := range lines {
+		padding := boxW - len(line)
+		if padding < 0 {
+			padding = 0
+		}
+		s.WriteString(fmt.Sprintf("│%s%s│\n", line, strings.Repeat(" ", padding)))
+	}
+
+	for i, opt := range welcomeOptions {
+		prefix := "     "
+		if i == m.cursor {
+			prefix = "  ▶  "
+		}
+		line := prefix + opt
+		padding := boxW - len(line)
+		if padding < 0 {
+			padding = 0
+		}
+		s.WriteString(fmt.Sprintf("│%s%s│\n", line, strings.Repeat(" ", padding)))
+	}
+
+	s.WriteString(fmt.Sprintf("│%s│\n", strings.Repeat(" ", boxW)))
+	s.WriteString(fmt.Sprintf("│  [↑/↓] navigate  [Enter] select  [q] quit   │\n"))
+	s.WriteString("└─────────────────────────────────────────────┘\n")
+	return s.String()
+}
+
+func showWelcomeMenu() {
+	m, err := tea.NewProgram(welcomeModel{cursor: 0}).Run()
+	if err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+	result := m.(welcomeModel)
+	if result.quit {
+		return
+	}
+
+	fmt.Println()
+
+	switch result.choice {
+	case 1:
+		quickSetup()
+	case 2:
+		runWizardCmd()
+	case 3:
+		runManualWizard()
+	case 4:
+		displayStatus()
+		fmt.Println()
+		fmt.Println("Run 'vision-mcp --configure' to configure, or 'vision-mcp' to start.")
+	default:
+		fmt.Println("Exiting.")
+	}
+}
+
+func quickSetup() {
+	fmt.Println("\nRunning quick setup...")
+
+	cfg := config.DefaultConfig()
+	hw, err := hardware.DetectHardware()
+	if err == nil {
+		cfg.Quantization = hardware.RecommendQuantization(hw)
+		cfg.LlamaBackend = hardware.RecommendBackend(hw)
+	}
+
+	if err := cfg.Save(); err != nil {
+		log.Fatalf("Error saving config: %v", err)
+	}
+
+	fmt.Printf("Config saved to %s\n", config.ConfigPath())
+	fmt.Printf("Backend: %s, Quantization: %s\n", cfg.LlamaBackend, cfg.Quantization)
+	fmt.Println("Run 'vision-mcp' to start (models will download automatically).")
 }
 
 func runWizardCmd() {
 	cfg, err := setup.RunWizard()
 	if err != nil {
 		log.Fatalf("Wizard error: %v", err)
+	}
+	if cfg != nil {
+		if err := cfg.Save(); err != nil {
+			log.Fatalf("Error saving config: %v", err)
+		}
+		fmt.Printf("\nConfiguration saved to %s\n", config.ConfigPath())
+		fmt.Printf("Run 'vision-mcp' to start the server.\n")
+	}
+}
+
+func runManualWizard() {
+	cfg, err := setup.RunManualWizard()
+	if err != nil {
+		log.Fatalf("Manual wizard error: %v", err)
 	}
 	if cfg != nil {
 		if err := cfg.Save(); err != nil {
@@ -135,10 +381,86 @@ func runUninstallCmd() {
 	}
 }
 
-func runServer() {
-	log.SetFlags(0)
-	log.SetOutput(os.Stderr)
+func runFreeMemory() {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("Error loading config: %v", err)
+	}
 
+	client := &http.Client{Timeout: 3 * time.Second}
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", cfg.Port)
+
+	resp, err := client.Get(healthURL)
+	if err != nil {
+		fmt.Printf("No llama-server responding on port %d\n", cfg.Port)
+		killAnyLlamaServer()
+		return
+	}
+	resp.Body.Close()
+
+	pid := findProcessOnPort(cfg.Port)
+	if pid > 0 {
+		proc, err := os.FindProcess(pid)
+		if err == nil {
+			proc.Signal(syscall.SIGTERM)
+			time.Sleep(2 * time.Second)
+			proc.Kill()
+			fmt.Println("Model unloaded, memory freed.")
+			return
+		}
+	}
+	fmt.Println("Could not find process to free.")
+	killAnyLlamaServer()
+}
+
+func killAnyLlamaServer() {
+	bin := "llama-server"
+	if runtime.GOOS == "windows" {
+		bin = "llama-server.exe"
+	}
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("taskkill", "/F", "/IM", bin)
+	} else {
+		cmd = exec.Command("pkill", "-f", "llama-server")
+	}
+	if err := cmd.Run(); err != nil {
+		fmt.Println("No llama-server processes found.")
+	} else {
+		fmt.Println("Killed remaining llama-server processes.")
+	}
+}
+
+func findProcessOnPort(port int) int {
+	pid := 0
+	portStr := fmt.Sprintf(":%d ", port)
+
+	if runtime.GOOS == "windows" {
+		out, err := exec.Command("netstat", "-ano").Output()
+		if err != nil {
+			return 0
+		}
+		lines := strings.Split(string(out), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "LISTENING") && strings.Contains(line, portStr) {
+				fields := strings.Fields(line)
+				if len(fields) > 0 {
+					fmt.Sscanf(fields[len(fields)-1], "%d", &pid)
+				}
+			}
+		}
+	} else {
+		out, err := exec.Command("lsof", "-ti", fmt.Sprintf(":%d", port)).Output()
+		if err != nil {
+			return 0
+		}
+		fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &pid)
+	}
+	return pid
+}
+
+func runServer() {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("Error loading config: %v", err)
@@ -150,22 +472,36 @@ func runServer() {
 			hw.TotalRAM/(1024*1024*1024),
 			hw.GPU.VRAM/(1024*1024*1024))
 
-		backend := hardware.RecommendBackend(hw)
-		quant := hardware.RecommendQuantization(hw)
-
 		if cfg.LlamaBackend == "" || cfg.LlamaBackend == "cuda" && !hw.GPU.Present {
-			cfg.LlamaBackend = backend
-		}
-		if cfg.Quantization == "Q4_K_M" {
-			cfg.Quantization = quant
+			cfg.LlamaBackend = hardware.RecommendBackend(hw)
 		}
 		cfg.Save()
 	}
 
 	if cfg.AutoDownload {
 		log.Printf("Checking models...")
-		if err := download.EnsureModels(cfg, nil); err != nil {
+		if err := download.EnsureModels(cfg, downloadProgress("Model")); err != nil {
 			log.Fatalf("Error downloading models: %v", err)
+		}
+	}
+
+	llamaBin := cfg.LlamaBin
+	if cfg.LlamaServerPath != "" {
+		llamaBin = cfg.LlamaServerPath
+		log.Printf("Using configured llama-server: %s", llamaBin)
+	} else {
+		found, err := discover.FindSystemLlamaServer()
+		if err != nil {
+			log.Printf("llama-server not found, downloading...")
+			binPath, err := download.EnsureLlamaBinary(cfg.LlamaBackend, config.InstallDir(), downloadProgress("llama-server"))
+			if err != nil {
+				log.Fatalf("Could not get llama-server: %v", err)
+			}
+			llamaBin = binPath
+			log.Printf("llama-server downloaded to: %s", llamaBin)
+		} else {
+			llamaBin = found
+			log.Printf("Using llama-server from: %s", llamaBin)
 		}
 	}
 
@@ -180,7 +516,7 @@ func runServer() {
 		cfg.NGL,
 		cfg.NCtx,
 		cfg.FlashAttn,
-		cfg.LlamaBin,
+		llamaBin,
 	)
 	if err := srv.Start(ctx); err != nil {
 		log.Fatalf("Error starting llama-server: %v", err)
@@ -250,18 +586,24 @@ func displayStatus() {
 func runDownload() {
 	cfg, _ := config.LoadConfig()
 	fmt.Println("Downloading models...")
-	if err := download.EnsureModels(cfg, downloadProgress); err != nil {
+	if err := download.EnsureModels(cfg, downloadProgress("Model")); err != nil {
 		log.Fatalf("Error: %v", err)
 	}
-	fmt.Println("\nModels ready.")
+	fmt.Println("Models ready.")
 }
 
-func downloadProgress(downloaded, total int64) {
-	if total > 0 && downloaded > 0 {
-		pct := float64(downloaded) / float64(total) * 100
-		fmt.Printf("\rDownloading... %.1f%% (%s/%s)  ",
-			pct,
-			download.FormatBytes(downloaded),
-			download.FormatBytes(total))
+func downloadProgress(label string) download.ProgressFunc {
+	return func(downloaded, total int64) {
+		if total > 0 && downloaded > 0 {
+			pct := float64(downloaded) / float64(total) * 100
+			fmt.Printf("\r%s: %.1f%% (%s/%s)  ",
+				label, pct,
+				download.FormatBytes(downloaded),
+				download.FormatBytes(total))
+		}
+		if downloaded == total && total > 0 {
+			fmt.Printf("\r%s: 100%% (%s)  ✓\n",
+				label, download.FormatBytes(total))
+		}
 	}
 }

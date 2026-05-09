@@ -6,22 +6,26 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 type Config struct {
-	RepoID         string `json:"repo_id"`
-	Quantization   string `json:"quantization"`
-	MMProj         string `json:"mmproj"`
-	LlamaBackend   string `json:"llama_backend"`
-	LlamaBin       string `json:"llama_bin"`
-	ModelsDir      string `json:"models_dir"`
-	Port           int    `json:"port"`
-	NCtx           int    `json:"n_ctx"`
-	NGL            int    `json:"ngl"`
-	FlashAttn      bool   `json:"flash_attn"`
-	AutoDownload   bool   `json:"auto_download"`
-	DownloadMirror string `json:"download_mirror"`
-	CustomPrompt   string `json:"custom_prompt"`
+	RepoID             string `json:"repo_id"`
+	Quantization       string `json:"quantization"`
+	MMProj             string `json:"mmproj"`
+	LlamaBackend       string `json:"llama_backend"`
+	LlamaBin           string `json:"llama_bin"`
+	ModelsDir          string `json:"models_dir"`
+	Port               int    `json:"port"`
+	NCtx               int    `json:"n_ctx"`
+	NGL                int    `json:"ngl"`
+	FlashAttn          bool   `json:"flash_attn"`
+	AutoDownload       bool   `json:"auto_download"`
+	DownloadMirror     string `json:"download_mirror"`
+	CustomPrompt       string `json:"custom_prompt"`
+	ModelPathOverride  string `json:"model_path"`
+	MMProjPathOverride string `json:"mmproj_path"`
+	LlamaServerPath    string `json:"llama_server_path"`
 }
 
 func DefaultConfig() Config {
@@ -51,7 +55,7 @@ func ConfigPath() string {
 	return filepath.Join(InstallDir(), "config.json")
 }
 
-func portableConfigPath() string {
+func PortableConfigPath() string {
 	return "vision-mcp.json"
 }
 
@@ -60,7 +64,7 @@ func LoadConfig() (*Config, error) {
 
 	path := ConfigPath()
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		path = portableConfigPath()
+		path = PortableConfigPath()
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			return &cfg, nil
 		}
@@ -107,9 +111,20 @@ func DefaultModelsDir() string {
 }
 
 func (c *Config) ModelPath() string {
-	return filepath.Join(c.ModelsDir, fmt.Sprintf("Qwen3.5-4B-%s.gguf", c.Quantization))
+	if c.ModelPathOverride != "" {
+		return c.ModelPathOverride
+	}
+	return filepath.Join(c.ModelsDir, fmt.Sprintf("%s-%s.gguf", modelNameFromRepo(c.RepoID), c.Quantization))
 }
 
 func (c *Config) MMProjPath() string {
+	if c.MMProjPathOverride != "" {
+		return c.MMProjPathOverride
+	}
 	return filepath.Join(c.ModelsDir, c.MMProj)
+}
+
+func modelNameFromRepo(repoID string) string {
+	parts := strings.Split(repoID, "/")
+	return strings.TrimSuffix(parts[len(parts)-1], "-GGUF")
 }

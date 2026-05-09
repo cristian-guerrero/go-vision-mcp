@@ -107,7 +107,8 @@ func (h *ToolHandler) handleDescribeImage(ctx context.Context, request mcp.CallT
 }
 
 type chatRequest struct {
-	Messages []chatMessage `json:"messages"`
+	Messages       []chatMessage          `json:"messages"`
+	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
 }
 
 type chatMessage struct {
@@ -135,6 +136,7 @@ type chatResponse struct {
 
 func (h *ToolHandler) chatCompletion(ctx context.Context, prompt, dataURI string) (string, error) {
 	req := chatRequest{
+		ChatTemplateKwargs: map[string]any{"enable_thinking": false},
 		Messages: []chatMessage{
 			{
 				Role: "user",

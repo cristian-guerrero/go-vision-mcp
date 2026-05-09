@@ -70,6 +70,44 @@ func TestModelPath(t *testing.T) {
 	}
 }
 
+func TestModelPathWithOverride(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ModelPathOverride = "/custom/path/model.gguf"
+
+	path := cfg.ModelPath()
+	if path != "/custom/path/model.gguf" {
+		t.Errorf("expected override path, got %s", path)
+	}
+}
+
+func TestMMProjPathWithOverride(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.MMProjPathOverride = "/custom/path/mmproj.gguf"
+
+	path := cfg.MMProjPath()
+	if path != "/custom/path/mmproj.gguf" {
+		t.Errorf("expected override path, got %s", path)
+	}
+}
+
+func TestModelNameFromRepo(t *testing.T) {
+	tests := []struct {
+		repoID   string
+		expected string
+	}{
+		{"unsloth/Qwen3.5-4B-GGUF", "Qwen3.5-4B"},
+		{"unsloth/Llama-3.2-11B-Vision-GGUF", "Llama-3.2-11B-Vision"},
+		{"bartowski/Qwen2.5-VL-7B-Instruct-GGUF", "Qwen2.5-VL-7B-Instruct"},
+	}
+
+	for _, tt := range tests {
+		result := modelNameFromRepo(tt.repoID)
+		if result != tt.expected {
+			t.Errorf("modelNameFromRepo(%q) = %q, want %q", tt.repoID, result, tt.expected)
+		}
+	}
+}
+
 func TestMMProjPath(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.ModelsDir = "/test/models"

@@ -1,11 +1,15 @@
 package llamaserver
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
+	"syscall"
 	"time"
 )
 
@@ -38,6 +42,13 @@ func (s *Server) Start(ctx context.Context) error {
 		binary = defaultBinary()
 	}
 
+	if _, err := os.Stat(s.model); os.IsNotExist(err) {
+		return fmt.Errorf("model file not found: %s", s.model)
+	}
+	if _, err := os.Stat(s.mmproj); os.IsNotExist(err) {
+		return fmt.Errorf("mmproj file not found: %s", s.mmproj)
+	}
+
 	args := []string{
 		"-m", s.model,
 		"--mmproj", s.mmproj,
@@ -45,14 +56,28 @@ func (s *Server) Start(ctx context.Context) error {
 		"--n-gpu-layers", fmt.Sprintf("%d", s.ngl),
 		"--ctx-size", fmt.Sprintf("%d", s.nctx),
 		"--host", "127.0.0.1",
+		"-ctk", "q4_0",
+		"-ctv", "q4_0",
 	}
 	if s.flash {
-		args = append(args, "--flash-attn")
+		args = append(args, "-fa", "on")
 	}
+	args = append(args, "--chat-template-kwargs", `{"enable_thinking": false}`)
+
+	log.Printf("Executing: %s %v", binary, args)
 
 	s.cmd = exec.CommandContext(ctx, binary, args...)
-	s.cmd.Stdout = nil
-	s.cmd.Stderr = nil
+	stderr, err := s.cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("create stderr pipe: %w", err)
+	}
+
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			log.Printf("[llama-server] %s", scanner.Text())
+		}
+	}()
 
 	if err := s.cmd.Start(); err != nil {
 		return fmt.Errorf("start %s: %w", binary, err)
@@ -90,7 +115,22 @@ func (s *Server) Stop() error {
 	if s.cmd == nil || s.cmd.Process == nil {
 		return nil
 	}
-	return s.cmd.Process.Kill()
+
+	if err := s.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		return s.cmd.Process.Kill()
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- s.cmd.Wait()
+	}()
+
+	select {
+	case <-time.After(3 * time.Second):
+		return s.cmd.Process.Kill()
+	case err := <-done:
+		return err
+	}
 }
 
 func (s *Server) URL() string {

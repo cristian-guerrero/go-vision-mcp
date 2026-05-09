@@ -15,14 +15,15 @@ type Wizard struct {
 	cfg         *config.Config
 	step        int
 	totalSteps  int
+	stepCount   int
+	cursorIdx   int
 	backend     string
 	quant       string
 	installDir  string
 	downloadDir string
 
-	done  bool
-	err   error
-	width int
+	done bool
+	err  error
 }
 
 func NewWizard() *Wizard {
@@ -38,7 +39,8 @@ func NewWizard() *Wizard {
 		hw:          hw,
 		cfg:         &cfg,
 		step:        0,
-		totalSteps:  5,
+		totalSteps:  6,
+		stepCount:   1,
 		backend:     cfg.LlamaBackend,
 		quant:       cfg.Quantization,
 		installDir:  config.InstallDir(),
@@ -66,34 +68,45 @@ func (w *Wizard) Init() tea.Cmd {
 
 func (w *Wizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		w.width = msg.Width
-
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return w, tea.Quit
 
+		case "up", "k":
+			if w.hasOptions() && w.stepCount > 0 {
+				w.cursorIdx = (w.cursorIdx - 1 + w.stepCount) % w.stepCount
+			}
+
+		case "down", "j":
+			if w.hasOptions() && w.stepCount > 0 {
+				w.cursorIdx = (w.cursorIdx + 1) % w.stepCount
+			}
+
+		case "left", "esc", "escape", "backspace":
+			if w.step > 0 {
+				w.step--
+				w.cursorIdx = 0
+			}
+
 		case "enter":
-			w.nextStep()
-			if w.step >= w.totalSteps {
+			if w.step == w.totalSteps-1 {
 				w.done = true
 				return w, tea.Quit
 			}
-
-		case "1", "2", "3", "4", "5", "6", "7", "8":
-			idx := int(msg.String()[0] - '1')
-			w.handleSelection(idx)
-
-		case "y", "Y":
-			w.handleYesNo(true)
-
-		case "n", "N":
-			w.handleYesNo(false)
+			if w.hasOptions() {
+				w.handleSelection(w.cursorIdx)
+			}
+			w.step++
+			w.cursorIdx = 0
 		}
 	}
 
 	return w, nil
+}
+
+func (w *Wizard) hasOptions() bool {
+	return w.step == 1 || w.step == 2 || w.step == 3
 }
 
 func (w *Wizard) handleSelection(idx int) {
@@ -108,30 +121,16 @@ func (w *Wizard) handleSelection(idx int) {
 		if idx >= 0 && idx < len(quants) {
 			w.quant = quants[idx].Name
 		}
-	}
-}
-
-func (w *Wizard) handleYesNo(yes bool) {
-	switch w.step {
 	case 3:
-		if !yes {
+		if idx == 1 {
 			w.installDir = "."
 		}
 	}
 }
 
-func (w *Wizard) nextStep() {
-	w.step++
-	if w.step == 5 {
-		w.cfg.Quantization = w.quant
-		w.cfg.LlamaBackend = w.backend
-		w.cfg.ModelsDir = w.downloadDir + "/models"
-	}
-}
-
 func (w *Wizard) View() string {
 	if w.done {
-		return w.viewSummary()
+		return w.viewComplete()
 	}
 
 	var s strings.Builder
@@ -150,16 +149,29 @@ func (w *Wizard) View() string {
 		s.WriteString(w.viewInstallPath())
 	case 4:
 		s.WriteString(w.viewDownload())
+	case 5:
+		s.WriteString(w.viewSummary())
 	}
 
 	s.WriteString("\n\n")
-	s.WriteString(FooterStyle.Render("[Enter] continue  [q] quit"))
+	s.WriteString(FooterStyle.Render(w.footer()))
 
 	if w.err != nil {
 		s.WriteString("\n" + ErrorStyle.Render(fmt.Sprintf("Error: %v", w.err)))
 	}
 
 	return s.String()
+}
+
+func (w *Wizard) footer() string {
+	switch w.step {
+	case 0:
+		return "[Enter] continue  [q] quit"
+	case 5:
+		return "[Enter] exit  [q] quit"
+	default:
+		return "[↑/↓] navigate  [Enter] confirm  [←/esc] back  [q] quit"
+	}
 }
 
 func (w *Wizard) stepTitle() string {
@@ -174,6 +186,8 @@ func (w *Wizard) stepTitle() string {
 		return "Installation Path"
 	case 4:
 		return "Download & Install"
+	case 5:
+		return "Summary"
 	}
 	return ""
 }
@@ -224,22 +238,28 @@ func (w *Wizard) viewBackend() string {
 		{"metal", "Metal", "Apple Silicon / Metal"},
 	}
 
+	w.stepCount = len(backends)
 	recommended := w.cfg.LlamaBackend
 
 	for i, b := range backends {
-		num := fmt.Sprintf("[%d]", i+1)
+		bullet := "  ○"
 		name := b.label
 		desc := b.desc
+		extra := ""
 
-		if b.key == recommended {
-			name = HighlightStyle.Render(name + " " + BadgeRecommended.String())
+		if i == w.cursorIdx {
+			bullet = DimStyle.Render(" ●")
+			name = SelectedStyle.Render(name)
+			if b.key == recommended {
+				extra = " " + BadgeRecommended.String()
+			}
+		} else if b.key == recommended {
+			extra = " " + BadgeRecommended.String()
 		}
 
-		s.WriteString(fmt.Sprintf("  %s %-30s %s %s\n", num, name, DimStyle.Render(desc), ""))
+		s.WriteString(fmt.Sprintf("%s %s  %s%s\n", bullet, name, DimStyle.Render(desc), extra))
 	}
 
-	w.backend = recommended
-	s.WriteString(fmt.Sprintf("\n  Press 1-%d to select, or Enter for recommended", len(backends)))
 	return s.String()
 }
 
@@ -249,22 +269,28 @@ func (w *Wizard) viewQuantization() string {
 
 	quants := hardware.AvailableQuantizations()
 	rec := w.cfg.Quantization
+	w.stepCount = len(quants)
 
 	for i, q := range quants {
-		num := fmt.Sprintf("[%d]", i+1)
+		bullet := "  ○"
 		name := q.Name
 		size := q.Size
 		label := q.Label
+		extra := ""
 
-		if name == rec {
-			name = HighlightStyle.Render(name + " " + BadgeRecommended.String())
+		if i == w.cursorIdx {
+			bullet = DimStyle.Render(" ●")
+			name = SelectedStyle.Render(name)
+			if q.Name == rec {
+				extra = " " + BadgeRecommended.String()
+			}
+		} else if q.Name == rec {
+			extra = " " + BadgeRecommended.String()
 		}
 
-		s.WriteString(fmt.Sprintf("  %s %-20s %-10s %s\n", num, name, DimStyle.Render(size), DimStyle.Render(label)))
+		s.WriteString(fmt.Sprintf("%s %s  %s  %s%s\n", bullet, name, DimStyle.Render(size), DimStyle.Render(label), extra))
 	}
 
-	w.quant = rec
-	s.WriteString(fmt.Sprintf("\n  Press 1-%d to select, or Enter for recommended", len(quants)))
 	return s.String()
 }
 
@@ -276,9 +302,30 @@ func (w *Wizard) viewInstallPath() string {
 	s.WriteString("The binary, models, and config will be stored here.\n")
 	s.WriteString(fmt.Sprintf("Estimated space needed with %s: ~3-4 GB\n\n", HighlightStyle.Render(w.quant)))
 
-	s.WriteString("Add to PATH? [y/n]\n")
-	s.WriteString(fmt.Sprintf("  %s Press Y to install to %s\n", ArrowStyle, w.installDir))
-	s.WriteString(fmt.Sprintf("  %s Press N for portable mode (config in current dir)\n", ArrowStyle))
+	s.WriteString("Add to PATH?\n\n")
+
+	type pathOption struct {
+		label string
+		desc  string
+	}
+	options := []pathOption{
+		{"Yes", fmt.Sprintf("Install to %s (add to PATH)", w.installDir)},
+		{"No", "Portable mode (config in current directory)"},
+	}
+
+	w.stepCount = len(options)
+
+	for i, opt := range options {
+		bullet := "  ○"
+		label := opt.label
+
+		if i == w.cursorIdx {
+			bullet = DimStyle.Render(" ●")
+			label = SelectedStyle.Render(label)
+		}
+
+		s.WriteString(fmt.Sprintf("%s %s  %s\n", bullet, label, DimStyle.Render(opt.desc)))
+	}
 
 	return s.String()
 }
@@ -286,6 +333,28 @@ func (w *Wizard) viewInstallPath() string {
 func (w *Wizard) viewDownload() string {
 	var s strings.Builder
 	s.WriteString("Ready to configure Vision MCP\n\n")
+
+	s.WriteString(BoxStyle.Render("Preview",
+		fmt.Sprintf("Backend:      %s\nQuantization: %s\nInstall dir:  %s\n",
+			HighlightStyle.Render(w.backend),
+			HighlightStyle.Render(w.quant),
+			InfoStyle.Render(w.installDir),
+		),
+	))
+
+	s.WriteString(fmt.Sprintf("\n  Press Enter to continue to summary.\n"))
+	s.WriteString(fmt.Sprintf("  Models will download on first server start.\n"))
+
+	return s.String()
+}
+
+func (w *Wizard) viewSummary() string {
+	w.cfg.Quantization = w.quant
+	w.cfg.LlamaBackend = w.backend
+	w.cfg.ModelsDir = w.downloadDir + "/models"
+
+	var s strings.Builder
+	s.WriteString("Configuration Summary\n\n")
 
 	s.WriteString(BoxStyle.Render("Summary",
 		fmt.Sprintf("Backend:      %s\nQuantization: %s\nInstall dir:  %s\n",
@@ -295,13 +364,12 @@ func (w *Wizard) viewDownload() string {
 		),
 	))
 
-	s.WriteString(fmt.Sprintf("\n  Press Enter to save configuration and exit.\n"))
-	s.WriteString(fmt.Sprintf("  Models will download on first server start.\n"))
+	s.WriteString(fmt.Sprintf("\n  Press Enter to save and exit.\n"))
 
 	return s.String()
 }
 
-func (w *Wizard) viewSummary() string {
+func (w *Wizard) viewComplete() string {
 	var s strings.Builder
 	s.WriteString(TitleStyle.Render("Configuration Complete!"))
 	s.WriteString("\n\n")
