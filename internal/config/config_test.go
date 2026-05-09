@@ -14,8 +14,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.RepoID != "unsloth/Qwen3.5-4B-GGUF" {
 		t.Errorf("expected unsloth/Qwen3.5-4B-GGUF, got %s", cfg.RepoID)
 	}
-	if cfg.Quantization != "Q4_K_M" {
-		t.Errorf("expected Q4_K_M, got %s", cfg.Quantization)
+	if cfg.Quantization != "UD-IQ3_XXS" {
+		t.Errorf("expected UD-IQ3_XXS, got %s", cfg.Quantization)
 	}
 	if cfg.Port != 8001 {
 		t.Errorf("expected 8001, got %d", cfg.Port)

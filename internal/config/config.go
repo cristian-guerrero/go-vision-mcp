@@ -28,13 +28,15 @@ type Config struct {
 	MMProjPathOverride string `json:"mmproj_path"`
 	LlamaServerPath    string `json:"llama_server_path"`
 	LlamaServerMode    string `json:"llama_server_mode"`
+	KvCacheTypeK       string `json:"kv_cache_type_k"`
+	KvCacheTypeV       string `json:"kv_cache_type_v"`
 	IdleTimeout        int    `json:"idle_timeout"`
 }
 
 func DefaultConfig() Config {
 	return Config{
 		RepoID:         "unsloth/Qwen3.5-4B-GGUF",
-		Quantization:   "Q4_K_M",
+		Quantization:   "UD-IQ3_XXS",
 		MMProj:         "mmproj-F16.gguf",
 		LlamaBackend:   "cuda",
 		LlamaBin:       llamaBinDefault(),
@@ -46,6 +48,8 @@ func DefaultConfig() Config {
 		AutoDownload:   true,
 		DownloadMirror: "https://github.com/ggml-org/llama.cpp/releases",
 		CustomPrompt:   "Analyze this image and respond to: %s",
+		KvCacheTypeK:   "q4_0",
+		KvCacheTypeV:   "q4_0",
 		IdleTimeout:    5,
 	}
 }

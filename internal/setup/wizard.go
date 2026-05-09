@@ -41,7 +41,7 @@ func NewWizard() *Wizard {
 		hw:          hw,
 		cfg:         &cfg,
 		step:        0,
-		totalSteps:  5,
+		totalSteps:  4,
 		stepCount:   1,
 		backend:     cfg.LlamaBackend,
 		quant:       cfg.Quantization,
@@ -97,6 +97,9 @@ func (w *Wizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "enter":
 			if w.step == w.totalSteps-1 {
+				w.cfg.Quantization = w.quant
+				w.cfg.LlamaBackend = w.backend
+				w.cfg.ModelsDir = w.downloadDir + "/models"
 				w.done = true
 				return w, tea.Quit
 			}
@@ -112,22 +115,22 @@ func (w *Wizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (w *Wizard) hasOptions() bool {
-	return w.step == 1 || w.step == 2 || w.step == 3
+	return w.step == 0 || w.step == 1 || w.step == 2
 }
 
 func (w *Wizard) handleSelection(idx int) {
 	switch w.step {
-	case 1:
+	case 0:
 		backends := []string{"cuda", "cpu", "vulkan", "metal"}
 		if idx >= 0 && idx < len(backends) {
 			w.backend = backends[idx]
 		}
-	case 2:
+	case 1:
 		quants := hardware.AvailableQuantizations()
 		if idx >= 0 && idx < len(quants) {
 			w.quant = quants[idx].Name
 		}
-	case 3:
+	case 2:
 		if idx == 1 {
 			w.installDir = "."
 		}
@@ -146,14 +149,12 @@ func (w *Wizard) View() string {
 
 	switch w.step {
 	case 0:
-		s.WriteString(w.viewHardware())
-	case 1:
 		s.WriteString(w.viewBackend())
-	case 2:
+	case 1:
 		s.WriteString(w.viewQuantization())
-	case 3:
+	case 2:
 		s.WriteString(w.viewInstallPath())
-	case 4:
+	case 3:
 		s.WriteString(w.viewSummary())
 	}
 
@@ -169,9 +170,7 @@ func (w *Wizard) View() string {
 
 func (w *Wizard) footer() string {
 	switch w.step {
-	case 0:
-		return "[Enter] continue  [q] quit"
-	case 4:
+	case 3:
 		return "[Enter] save and exit  [q] quit"
 	default:
 		return "[↑/↓] navigate  [Enter] confirm  [←/esc] back  [q] quit"
@@ -181,14 +180,12 @@ func (w *Wizard) footer() string {
 func (w *Wizard) stepTitle() string {
 	switch w.step {
 	case 0:
-		return "Hardware Detection"
-	case 1:
 		return "Select Backend"
-	case 2:
+	case 1:
 		return "Select Quantization"
-	case 3:
+	case 2:
 		return "Installation Path"
-	case 4:
+	case 3:
 		return "Summary"
 	}
 	return ""

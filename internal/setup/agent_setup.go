@@ -78,13 +78,16 @@ func (m AgentSetupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 
-		case " ", "enter":
-			if m.cursor == len(m.agents) {
-				m.confirm = true
-				m.done = true
-				return m, tea.Quit
-			}
-			m.checked[m.cursor] = !m.checked[m.cursor]
+	case " ":
+		m.checked[m.cursor] = !m.checked[m.cursor]
+
+	case "enter":
+		if m.cursor == len(m.agents) {
+			m.confirm = true
+			m.done = true
+			return m, tea.Quit
+		}
+		m.cursor = len(m.agents)
 
 		case "esc", "escape", "backspace":
 			m.quit = true

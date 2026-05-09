@@ -22,17 +22,21 @@ type Server struct {
 	nctx   int
 	flash  bool
 	bin    string
+	ctk    string
+	ctv    string
 }
 
-func New(modelPath, mmprojPath string, port, ngl, nctx int, flashAttn bool, binaryName string) *Server {
+func New(modelPath, mmprojPath string, port, ngl, nctx int, flashAttn bool, binaryName, kvCacheTypeK, kvCacheTypeV string) *Server {
 	return &Server{
-		model:  modelPath,
+		model: modelPath,
 		mmproj: mmprojPath,
 		port:   port,
 		ngl:    ngl,
 		nctx:   nctx,
 		flash:  flashAttn,
 		bin:    binaryName,
+		ctk:    kvCacheTypeK,
+		ctv:    kvCacheTypeV,
 	}
 }
 
@@ -49,6 +53,15 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("mmproj file not found: %s", s.mmproj)
 	}
 
+	ctk := s.ctk
+	if ctk == "" {
+		ctk = "q4_0"
+	}
+	ctv := s.ctv
+	if ctv == "" {
+		ctv = "q4_0"
+	}
+
 	args := []string{
 		"-m", s.model,
 		"--mmproj", s.mmproj,
@@ -56,8 +69,8 @@ func (s *Server) Start(ctx context.Context) error {
 		"--n-gpu-layers", fmt.Sprintf("%d", s.ngl),
 		"--ctx-size", fmt.Sprintf("%d", s.nctx),
 		"--host", "127.0.0.1",
-		"-ctk", "q4_0",
-		"-ctv", "q4_0",
+		"-ctk", ctk,
+		"-ctv", ctv,
 	}
 	if s.ngl > 0 {
 		args = append(args, "--no-mmap")

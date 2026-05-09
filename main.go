@@ -682,6 +682,7 @@ func runServer() {
 	if err != nil {
 		log.Fatalf("Error loading config: %v", err)
 	}
+	cfg.Save()
 
 	mcpServer := server.NewMCPServer("vision-mcp", "1.0.0")
 	handler := mcptools.NewToolHandler("", cfg.CustomPrompt)
@@ -784,6 +785,8 @@ func runServer() {
 				cfg.NCtx,
 				cfg.FlashAttn,
 				llamaBin,
+				cfg.KvCacheTypeK,
+				cfg.KvCacheTypeV,
 			)
 			if err := newSrv.Start(restartCtx); err != nil {
 				return fmt.Errorf("start llama-server: %w", err)

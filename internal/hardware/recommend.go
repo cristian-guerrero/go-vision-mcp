@@ -53,5 +53,6 @@ func AvailableQuantizations() []QuantOption {
 		{Name: "Q4_K_S", Size: "2.59 GB", Label: "Medium-low"},
 		{Name: "Q3_K_S", Size: "2.11 GB", Label: "Minimum"},
 		{Name: "IQ4_XS", Size: "2.48 GB", Label: "Low RAM"},
+		{Name: "UD-IQ3_XXS", Size: "1.82 GB", Label: "Ultra low RAM"},
 	}
 }
