@@ -60,31 +60,39 @@ vision-mcp.exe
 
 Configuration is stored at `~/.go-vision-mcp/config.json` (Windows: `%USERPROFILE%\.go-vision-mcp\config.json`).
 
-```json
-{
-  "repo_id": "unsloth/Qwen3.5-4B-GGUF",
-  "quantization": "Q4_K_M",
-  "mmproj": "mmproj-F16.gguf",
-  "llama_backend": "cuda",
-  "llama_bin": "llama-server.exe",
-  "models_dir": "~/.go-vision-mcp/models",
-  "port": 8001,
-  "n_ctx": 8192,
-  "ngl": 99,
-  "flash_attn": true,
-  "auto_download": true,
-  "download_mirror": "https://github.com/ggml-org/llama.cpp/releases",
-  "custom_prompt": "Analyze this image and respond to: %s",
-  "model_path": "",
-  "mmproj_path": "",
-  "llama_server_path": "",
-  "idle_timeout": 5
-}
-```
+### Fields
 
-`model_path`, `mmproj_path`, and `llama_server_path` override auto-download when set to a non-empty path.
+| Field | Default | Description |
+|-------|---------|-------------|
+| `repo_id` | `unsloth/Qwen3.5-4B-GGUF` | HuggingFace repo for GGUF model |
+| `quantization` | `UD-IQ3_XXS` | Quantization variant to download |
+| `mmproj` | `mmproj-F16.gguf` | Multimodal projector filename in the repo |
+| `llama_backend` | `cuda` | Compute backend: `cuda`, `cpu`, `vulkan`, `metal` |
+| `llama_bin` | `llama-server.exe` | llama-server binary name |
+| `models_dir` | `~/.go-vision-mcp/models` | Directory for downloaded models |
+| `port` | `8001` | Port for llama-server |
+| `n_ctx` | `8192` | Context size (tokens) |
+| `ngl` | `999` | GPU layers (-ngl). 0 = CPU only |
+| `flash_attn` | `true` | Enable flash attention (`-fa on`) |
+| `auto_download` | `true` | Download model/mmproj automatically |
+| `download_mirror` | `https://github.com/ggml-org/llama.cpp/releases` | Mirror for llama-server binary |
+| `custom_prompt` | `Analyze this image and respond to: %s` | Custom system prompt template |
+| `kv_cache_type_k` | `q4_0` | KV cache key quantization type (`-ctk`) |
+| `kv_cache_type_v` | `q4_0` | KV cache value quantization type (`-ctv`) |
+| `idle_timeout` | `5` | Minutes of inactivity before unloading model (0 = disabled) |
+| `model_path` | `""` | Override: exact path to model GGUF file |
+| `mmproj_path` | `""` | Override: exact path to mmproj file |
+| `llama_server_path` | `""` | Override: exact path to llama-server binary |
+| `llama_server_mode` | `""` | Mode: `""` (PATH then download), `"auto"` (download), `"custom"` (use path) |
 
-`idle_timeout` controls how many minutes of inactivity before the model is unloaded from GPU memory (0 = disabled, default: 5). The model automatically reloads on the next tool call.
+### Override behavior
+
+When `model_path`, `mmproj_path`, or `llama_server_path` are set to a non-empty path, auto-download is skipped and the specified file is used directly.
+
+`llama_server_mode` controls binary resolution:
+- `""` (empty) — search PATH first, download if not found
+- `"auto"` — always download regardless of PATH
+- `"custom"` — use the exact path from `llama_server_path`
 
 ## Available Tools
 
