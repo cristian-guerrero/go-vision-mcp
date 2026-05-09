@@ -714,23 +714,54 @@ func runServer() {
 			alreadyRunning = true
 		}
 
+		_, cancel := context.WithCancel(context.Background())
 		var srv *llamaserver.Server
 
-		if !alreadyRunning {
-			_, cancel := context.WithCancel(context.Background())
+		handler.SetStopFunc(func() {
+			cancel()
+			handler.SetLoaded(false)
+			if srv != nil {
+				srv.Stop()
+			}
+		})
 
-			handler.SetStopFunc(func() {
-				cancel()
-				handler.SetLoaded(false)
-				if srv != nil {
-					srv.Stop()
+		assetsReady := make(chan struct{})
+
+		if !alreadyRunning && cfg.AutoDownload {
+			go func() {
+				downloadErr := func() error {
+					if err := download.EnsureModels(cfg, downloadProgress("Model")); err != nil {
+						return err
+					}
+					_, newLlamaPath, err := resolveLlamaServer(cfg)
+					if err != nil {
+						return err
+					}
+					if newLlamaPath != "" {
+						cfg.LlamaServerPath = newLlamaPath
+					}
+					cfg.ModelPathOverride = cfg.ModelPath()
+					cfg.MMProjPathOverride = cfg.MMProjPath()
+					cfg.Save()
+					return nil
+				}()
+				if downloadErr != nil {
+					log.Printf("Warning: background asset download failed: %v", downloadErr)
 				}
-			})
+				close(assetsReady)
+			}()
+		} else {
+			close(assetsReady)
 		}
 
 		handler.SetRestartFunc(func(restartCtx context.Context) error {
+			select {
+			case <-assetsReady:
+			case <-restartCtx.Done():
+				return restartCtx.Err()
+			}
+
 			if cfg.AutoDownload {
-				log.Printf("Checking models...")
 				if err := download.EnsureModels(cfg, downloadProgress("Model")); err != nil {
 					return fmt.Errorf("download models: %w", err)
 				}
@@ -853,13 +884,13 @@ func downloadProgress(label string) download.ProgressFunc {
 	return func(downloaded, total int64) {
 		if total > 0 && downloaded > 0 {
 			pct := float64(downloaded) / float64(total) * 100
-			fmt.Printf("\r%s: %.1f%% (%s/%s)  ",
+			log.Printf("%s: %.1f%% (%s/%s)",
 				label, pct,
 				download.FormatBytes(downloaded),
 				download.FormatBytes(total))
 		}
 		if downloaded == total && total > 0 {
-			fmt.Printf("\r%s: 100%% (%s)  ✓\n",
+			log.Printf("%s: 100%% (%s) ✓",
 				label, download.FormatBytes(total))
 		}
 	}

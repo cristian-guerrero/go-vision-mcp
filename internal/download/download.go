@@ -45,7 +45,8 @@ func DownloadFile(url, destPath string, progress ProgressFunc) error {
 
 	if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
 		resp.Body.Close()
-		return os.Rename(tmpPath, destPath)
+		os.Remove(tmpPath)
+		return fmt.Errorf("resume not possible (416), remove stale .tmp and retry")
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
@@ -91,6 +92,7 @@ func DownloadFile(url, destPath string, progress ProgressFunc) error {
 	f.Close()
 
 	if err != nil {
+		os.Remove(tmpPath)
 		return fmt.Errorf("download: %w", err)
 	}
 
@@ -140,13 +142,18 @@ func HFDownloadURL(repoID, filename string) string {
 }
 
 func EnsureModels(cfg *config.Config, onProgress ProgressFunc) error {
+	modelPath := cfg.ModelPath()
+	mmprojPath := cfg.MMProjPath()
+
+	os.Remove(modelPath + ".tmp")
+	os.Remove(mmprojPath + ".tmp")
+
 	if cfg.ModelPathOverride != "" {
 		if _, err := os.Stat(cfg.ModelPathOverride); err != nil {
 			return fmt.Errorf("model file not found: %s", cfg.ModelPathOverride)
 		}
 	}
 
-	modelPath := cfg.ModelPath()
 	downloadedModel := false
 
 	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
@@ -159,10 +166,8 @@ func EnsureModels(cfg *config.Config, onProgress ProgressFunc) error {
 		if onProgress != nil {
 			onProgress(0, 0)
 		}
-		fmt.Println()
 	}
 
-	mmprojPath := cfg.MMProjPath()
 	downloadedMMProj := false
 
 	if cfg.MMProjPathOverride != "" {
@@ -175,11 +180,10 @@ func EnsureModels(cfg *config.Config, onProgress ProgressFunc) error {
 			if err := DownloadFile(url, mmprojPath, onProgress); err != nil {
 				return fmt.Errorf("download mmproj: %w", err)
 			}
-			downloadedMMProj = true
-			if onProgress != nil {
-				onProgress(0, 0)
-			}
-			fmt.Println()
+		downloadedMMProj = true
+		if onProgress != nil {
+			onProgress(0, 0)
+		}
 		}
 	}
 

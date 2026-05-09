@@ -65,6 +65,7 @@ func (s *Server) Start(ctx context.Context) error {
 	if s.flash {
 		args = append(args, "-fa", "on")
 	}
+	args = append(args, "--jinja")
 	args = append(args, "--chat-template-kwargs", `{"enable_thinking": false}`)
 
 	log.Printf("Executing: %s %v", binary, args)
