@@ -112,8 +112,13 @@ func main() {
 
 	if !isInteractive() {
 		log.Printf("No interactive terminal detected.")
-		showNonInteractiveMessage()
-		os.Exit(0)
+
+		if !configExists() {
+			log.Printf("No config found, starting with defaults.")
+		}
+
+		runServer()
+		return
 	}
 
 	if !configExists() {
@@ -300,6 +305,17 @@ func showWelcomeMenu() {
 func quickSetup() {
 	fmt.Println("\nRunning quick setup...")
 
+	exe, err := os.Executable()
+	if err != nil {
+		log.Printf("Warning: could not find executable for install: %v", err)
+	} else {
+		installDir := installer.InstallDir()
+		if err := installer.Install(installDir, exe); err != nil {
+			log.Printf("Warning: install failed: %v", err)
+		}
+		installer.GenerateReadme(installDir)
+	}
+
 	cfg := config.DefaultConfig()
 	hw, err := hardware.DetectHardware()
 	if err == nil {
@@ -326,6 +342,17 @@ func runWizardCmd() {
 			log.Fatalf("Error saving config: %v", err)
 		}
 		fmt.Printf("\nConfiguration saved to %s\n", config.ConfigPath())
+
+		exe, err := os.Executable()
+		if err == nil {
+			installDir := installer.InstallDir()
+			if err := installer.Install(installDir, exe); err != nil {
+				log.Printf("Warning: install failed: %v", err)
+			} else {
+				installer.GenerateReadme(installDir)
+			}
+		}
+
 		fmt.Printf("Run 'vision-mcp' to start the server.\n")
 	}
 }
@@ -340,6 +367,17 @@ func runManualWizard() {
 			log.Fatalf("Error saving config: %v", err)
 		}
 		fmt.Printf("\nConfiguration saved to %s\n", config.ConfigPath())
+
+		exe, err := os.Executable()
+		if err == nil {
+			installDir := installer.InstallDir()
+			if err := installer.Install(installDir, exe); err != nil {
+				log.Printf("Warning: install failed: %v", err)
+			} else {
+				installer.GenerateReadme(installDir)
+			}
+		}
+
 		fmt.Printf("Run 'vision-mcp' to start the server.\n")
 	}
 }
@@ -466,78 +504,90 @@ func runServer() {
 		log.Fatalf("Error loading config: %v", err)
 	}
 
-	hw, err := hardware.DetectHardware()
-	if err == nil {
-		log.Printf("Hardware: RAM=%dGB VRAM=%dGB",
-			hw.TotalRAM/(1024*1024*1024),
-			hw.GPU.VRAM/(1024*1024*1024))
-
-		if cfg.LlamaBackend == "" || cfg.LlamaBackend == "cuda" && !hw.GPU.Present {
-			cfg.LlamaBackend = hardware.RecommendBackend(hw)
-		}
-		cfg.Save()
-	}
-
-	if cfg.AutoDownload {
-		log.Printf("Checking models...")
-		if err := download.EnsureModels(cfg, downloadProgress("Model")); err != nil {
-			log.Fatalf("Error downloading models: %v", err)
-		}
-	}
-
-	llamaBin := cfg.LlamaBin
-	if cfg.LlamaServerPath != "" {
-		llamaBin = cfg.LlamaServerPath
-		log.Printf("Using configured llama-server: %s", llamaBin)
-	} else {
-		found, err := discover.FindSystemLlamaServer()
-		if err != nil {
-			log.Printf("llama-server not found, downloading...")
-			binPath, err := download.EnsureLlamaBinary(cfg.LlamaBackend, config.InstallDir(), downloadProgress("llama-server"))
-			if err != nil {
-				log.Fatalf("Could not get llama-server: %v", err)
-			}
-			llamaBin = binPath
-			log.Printf("llama-server downloaded to: %s", llamaBin)
-		} else {
-			llamaBin = found
-			log.Printf("Using llama-server from: %s", llamaBin)
-		}
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	log.Printf("Starting llama-server on port %d...", cfg.Port)
-	srv := llamaserver.New(
-		cfg.ModelPath(),
-		cfg.MMProjPath(),
-		cfg.Port,
-		cfg.NGL,
-		cfg.NCtx,
-		cfg.FlashAttn,
-		llamaBin,
-	)
-	if err := srv.Start(ctx); err != nil {
-		log.Fatalf("Error starting llama-server: %v", err)
-	}
-	log.Printf("llama-server ready")
-
-	defer srv.Stop()
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		log.Printf("Shutting down...")
-		cancel()
-		srv.Stop()
-		os.Exit(0)
-	}()
-
 	mcpServer := server.NewMCPServer("vision-mcp", "1.0.0")
-	handler := mcptools.NewToolHandler(srv.URL(), cfg.CustomPrompt)
+	handler := mcptools.NewToolHandler("", cfg.CustomPrompt)
 	handler.RegisterTools(mcpServer)
+
+	go func() {
+		hw, err := hardware.DetectHardware()
+		if err == nil {
+			log.Printf("Hardware: RAM=%dGB VRAM=%dGB",
+				hw.TotalRAM/(1024*1024*1024),
+				hw.GPU.VRAM/(1024*1024*1024))
+
+			if cfg.LlamaBackend == "" || cfg.LlamaBackend == "cuda" && !hw.GPU.Present {
+				cfg.LlamaBackend = hardware.RecommendBackend(hw)
+			}
+			cfg.Save()
+		}
+
+		if cfg.AutoDownload {
+			log.Printf("Checking models...")
+			if err := download.EnsureModels(cfg, downloadProgress("Model")); err != nil {
+				log.Fatalf("Error downloading models: %v", err)
+			}
+		}
+
+		llamaBin := cfg.LlamaBin
+		if cfg.LlamaServerPath != "" {
+			llamaBin = cfg.LlamaServerPath
+			log.Printf("Using configured llama-server: %s", llamaBin)
+		} else {
+			found, err := discover.FindSystemLlamaServer()
+			if err != nil {
+				log.Printf("llama-server not found, downloading...")
+				binPath, err := download.EnsureLlamaBinary(cfg.LlamaBackend, config.InstallDir(), downloadProgress("llama-server"))
+				if err != nil {
+					log.Fatalf("Could not get llama-server: %v", err)
+				}
+				llamaBin = binPath
+				log.Printf("llama-server downloaded to: %s", llamaBin)
+			} else {
+				llamaBin = found
+				log.Printf("Using llama-server from: %s", llamaBin)
+			}
+		}
+
+		healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", cfg.Port)
+		hc := &http.Client{Timeout: 2 * time.Second}
+		if resp, err := hc.Get(healthURL); err == nil {
+			resp.Body.Close()
+			log.Printf("llama-server already running on port %d, reusing", cfg.Port)
+			handler.SetLlamaURL(fmt.Sprintf("http://127.0.0.1:%d", cfg.Port))
+			handler.SetReady()
+			return
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+
+		log.Printf("Starting llama-server on port %d...", cfg.Port)
+		srv := llamaserver.New(
+			cfg.ModelPath(),
+			cfg.MMProjPath(),
+			cfg.Port,
+			cfg.NGL,
+			cfg.NCtx,
+			cfg.FlashAttn,
+			llamaBin,
+		)
+		if err := srv.Start(ctx); err != nil {
+			log.Fatalf("Error starting llama-server: %v", err)
+		}
+		log.Printf("llama-server ready")
+
+		handler.SetLlamaURL(srv.URL())
+		handler.SetReady()
+
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-sigCh
+			log.Printf("Shutting down...")
+			cancel()
+			srv.Stop()
+			os.Exit(0)
+		}()
+	}()
 
 	log.Printf("MCP server ready (STDIO mode)")
 	if err := server.ServeStdio(mcpServer); err != nil {

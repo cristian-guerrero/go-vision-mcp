@@ -3,9 +3,15 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -17,6 +23,7 @@ type ToolHandler struct {
 	llamaURL     string
 	customPrompt string
 	httpClient   *http.Client
+	ready        chan struct{}
 }
 
 func NewToolHandler(llamaURL, customPrompt string) *ToolHandler {
@@ -24,12 +31,33 @@ func NewToolHandler(llamaURL, customPrompt string) *ToolHandler {
 		llamaURL:     llamaURL,
 		customPrompt: customPrompt,
 		httpClient:   &http.Client{},
+		ready:        make(chan struct{}),
+	}
+}
+
+func (h *ToolHandler) SetLlamaURL(url string) {
+	h.llamaURL = url
+}
+
+func (h *ToolHandler) SetReady() {
+	close(h.ready)
+}
+
+func (h *ToolHandler) waitReady(ctx context.Context) error {
+	select {
+	case <-h.ready:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
 func (h *ToolHandler) RegisterTools(s *server.MCPServer) {
 	s.AddTool(analyzeImageTool(), h.handleAnalyzeImage)
 	s.AddTool(describeImageTool(), h.handleDescribeImage)
+	s.AddTool(getClipboardImageTool(), h.handleGetClipboardImage)
+	s.AddTool(describeClipboardTool(), h.handleDescribeClipboard)
+	s.AddTool(analyzeClipboardTool(), h.handleAnalyzeClipboard)
 }
 
 func analyzeImageTool() mcp.Tool {
@@ -59,12 +87,169 @@ func describeImageTool() mcp.Tool {
 	)
 }
 
+func getClipboardImageTool() mcp.Tool {
+	return mcp.NewTool("get_clipboard_image",
+		mcp.WithDescription("Get the current image from the clipboard as a data URI. Use this when the user says 'the image in the clipboard' or pastes an image."),
+	)
+}
+
+func describeClipboardTool() mcp.Tool {
+	return mcp.NewTool("describe_clipboard",
+		mcp.WithDescription("Describe the image currently in the clipboard."),
+		mcp.WithString("detail",
+			mcp.Description("Level of detail: brief or detailed"),
+		),
+	)
+}
+
+func analyzeClipboardTool() mcp.Tool {
+	return mcp.NewTool("analyze_clipboard",
+		mcp.WithDescription("Analyze the image currently in the clipboard with a custom prompt."),
+		mcp.WithString("prompt",
+			mcp.Required(),
+			mcp.Description("Question or instruction about the image"),
+		),
+	)
+}
+
+func clipboardImageDataURI() (string, error) {
+	if runtime.GOOS != "windows" {
+		return "", fmt.Errorf("clipboard reading is only supported on Windows")
+	}
+
+	tmpDir := os.TempDir()
+	tmpPath := filepath.Join(tmpDir, "vision-mcp-clipboard.png")
+
+	psScript := fmt.Sprintf(`
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+$img = $null
+
+# Try direct image
+$img = [System.Windows.Forms.Clipboard]::GetImage()
+
+# Try file drop (copied file in Explorer)
+if ($img -eq $null) {
+	$files = [System.Windows.Forms.Clipboard]::GetFileDropList()
+	if ($files -ne $null -and $files.Count -gt 0) {
+		$ext = [System.IO.Path]::GetExtension($files[0]).ToLower()
+		if ($ext -in '.png','.jpg','.jpeg','.gif','.bmp','.webp') {
+			$img = [System.Drawing.Image]::FromFile($files[0])
+		}
+	}
+}
+
+# Try FileContents / Bitmap data
+if ($img -eq $null) {
+	$data = [System.Windows.Forms.Clipboard]::GetData("Bitmap")
+	if ($data -ne $null) {
+		$img = $data
+	}
+}
+
+if ($img -eq $null) { Write-Output "no_image"; exit 1 }
+
+$bmp = New-Object System.Drawing.Bitmap($img)
+$bmp.Save('%s', [System.Drawing.Imaging.ImageFormat]::Png)
+$bmp.Dispose()
+$img.Dispose()
+exit 0
+`, strings.ReplaceAll(tmpPath, "'", "''"))
+
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", psScript)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if strings.Contains(msg, "no_image") {
+			return "", fmt.Errorf("no image found in clipboard")
+		}
+		return "", fmt.Errorf("clipboard read failed: %v - %s", err, msg)
+	}
+
+	defer os.Remove(tmpPath)
+
+	data, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return "", fmt.Errorf("read clipboard image: %w", err)
+	}
+
+	b64 := base64.StdEncoding.EncodeToString(data)
+	return fmt.Sprintf("data:image/png;base64,%s", b64), nil
+}
+
+func (h *ToolHandler) handleGetClipboardImage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if err := h.waitReady(ctx); err != nil {
+		return mcp.NewToolResultError("llama-server not ready yet"), nil
+	}
+
+	dataURI, err := clipboardImageDataURI()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Clipboard error: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(dataURI), nil
+}
+
+func (h *ToolHandler) handleDescribeClipboard(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if err := h.waitReady(ctx); err != nil {
+		return mcp.NewToolResultError("llama-server not ready yet"), nil
+	}
+
+	detail := request.GetString("detail", "detailed")
+
+	dataURI, err := clipboardImageDataURI()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Clipboard error: %v", err)), nil
+	}
+
+	prompt := "Describe this image in detail, including all objects, text, colors, layout, and any notable elements."
+	if detail == "brief" {
+		prompt = "Briefly describe this image in 1-2 sentences."
+	}
+
+	response, err := h.chatCompletion(ctx, prompt, dataURI)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Vision model error: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(response), nil
+}
+
+func (h *ToolHandler) handleAnalyzeClipboard(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	prompt, _ := request.RequireString("prompt")
+
+	if prompt == "" {
+		return mcp.NewToolResultError("prompt is required"), nil
+	}
+
+	if err := h.waitReady(ctx); err != nil {
+		return mcp.NewToolResultError("llama-server not ready yet"), nil
+	}
+
+	dataURI, err := clipboardImageDataURI()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Clipboard error: %v", err)), nil
+	}
+
+	response, err := h.chatCompletion(ctx, prompt, dataURI)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Vision model error: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(response), nil
+}
+
 func (h *ToolHandler) handleAnalyzeImage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	prompt, _ := request.RequireString("prompt")
 	imageRef, _ := request.RequireString("image")
 
 	if prompt == "" || imageRef == "" {
 		return mcp.NewToolResultError("prompt and image are required"), nil
+	}
+
+	if err := h.waitReady(ctx); err != nil {
+		return mcp.NewToolResultError("llama-server not ready yet"), nil
 	}
 
 	dataURI, err := image.ResolveToDataURI(imageRef)
@@ -86,6 +271,10 @@ func (h *ToolHandler) handleDescribeImage(ctx context.Context, request mcp.CallT
 
 	if imageRef == "" {
 		return mcp.NewToolResultError("image is required"), nil
+	}
+
+	if err := h.waitReady(ctx); err != nil {
+		return mcp.NewToolResultError("llama-server not ready yet"), nil
 	}
 
 	dataURI, err := image.ResolveToDataURI(imageRef)

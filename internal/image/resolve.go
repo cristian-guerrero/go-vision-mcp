@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -17,6 +19,15 @@ func ResolveToDataURI(ref string) (string, error) {
 
 	if strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://") {
 		return downloadToDataURI(ref)
+	}
+
+	if strings.HasPrefix(ref, "file:///") {
+		path := strings.TrimPrefix(ref, "file:///")
+		path, _ = url.PathUnescape(path)
+		if runtime.GOOS == "windows" {
+			path = strings.ReplaceAll(path, "/", "\\")
+		}
+		return fileToDataURI(path)
 	}
 
 	return fileToDataURI(ref)
