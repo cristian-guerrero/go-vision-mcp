@@ -30,10 +30,40 @@ Pass it to your agent so it can configure the MCP server automatically.
 
 ## MCP Server Configuration
 
+### Kilo Code / OpenCode format (kilo.json / opencode.json)
+
+`+"```json"+`
+{
+  "mcp": {
+    "vision-mcp": {
+      "type": "local",
+      "command": ["%s"],
+      "enabled": true
+    }
+  }
+}
+`+"```"+`
+
+### Zed Editor format (settings.json)
+
+`+"```json"+`
+{
+  "context_servers": {
+    "vision-mcp": {
+      "command": ["%s"],
+      "args": [],
+      "env": {}
+    }
+  }
+}
+`+"```"+`
+
+### Claude Desktop / PI Agent format (claude_desktop_config.json / mcp.json)
+
 `+"```json"+`
 {
   "mcpServers": {
-    "vision": {
+    "vision-mcp": {
       "command": "%s",
       "env": {
         "VISION_MCP_PORT": "%d",
@@ -54,27 +84,32 @@ Pass it to your agent so it can configure the MCP server automatically.
 ## Where to configure based on your agent
 
 ### Kilo Code
-- File: /path/to/.kilocode/mcp.json
-- Paste the JSON config above
+- File: ~/.config/kilo/kilo.json
+- Add the "mcp" block above to the JSON root
 
 ### OpenCode
-- File: ~/.opencode/mcp.json
-- Or configure via OpenCode interface
+- File: ~/.config/opencode/opencode.json
+- Add the "mcp" block above to the JSON root
+
+### Zed Editor
+- File: ~/.config/zed/settings.json (macOS/Linux) or %%APPDATA%%\Zed\settings.json (Windows)
+- Add the "context_servers" block above to the JSON root
 
 ### PI Agent
-- Project configuration file
-- Add to the mcpServers block
+- File: ~/.config/mcp/mcp.json
+- Use the "mcpServers" format above
 
 ### Claude Desktop
 - File: claude_desktop_config.json
 - Location: %%APPDATA%%\Claude\claude_desktop_config.json
+- Use the "mcpServers" format above
 
 ## Verify installation
 
 `+"```bash"+`
 vision-mcp --status
 `+"```"+`
-`, cmd, cfg.Port, cfg.LlamaBackend)
+`, cmd, cmd, cmd, cfg.Port, cfg.LlamaBackend)
 
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
