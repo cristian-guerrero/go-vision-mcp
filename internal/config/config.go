@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -110,21 +111,89 @@ func DefaultModelsDir() string {
 	return filepath.Join(InstallDir(), "models")
 }
 
+func (c *Config) ModelDir() string {
+	return filepath.Join(c.ModelsDir, c.RepoID)
+}
+
 func (c *Config) ModelPath() string {
 	if c.ModelPathOverride != "" {
 		return c.ModelPathOverride
 	}
-	return filepath.Join(c.ModelsDir, fmt.Sprintf("%s-%s.gguf", modelNameFromRepo(c.RepoID), c.Quantization))
+	newPath := filepath.Join(c.ModelDir(), fmt.Sprintf("%s-%s.gguf", modelNameFromRepo(c.RepoID), c.Quantization))
+	oldPath := filepath.Join(c.ModelsDir, fmt.Sprintf("%s-%s.gguf", modelNameFromRepo(c.RepoID), c.Quantization))
+	if _, err := os.Stat(newPath); os.IsNotExist(err) {
+		if _, err := os.Stat(oldPath); err == nil {
+			return oldPath
+		}
+	}
+	return newPath
 }
 
 func (c *Config) MMProjPath() string {
 	if c.MMProjPathOverride != "" {
 		return c.MMProjPathOverride
 	}
-	return filepath.Join(c.ModelsDir, c.MMProj)
+	newPath := filepath.Join(c.ModelDir(), c.MMProj)
+	oldPath := filepath.Join(c.ModelsDir, c.MMProj)
+	if _, err := os.Stat(newPath); os.IsNotExist(err) {
+		if _, err := os.Stat(oldPath); err == nil {
+			return oldPath
+		}
+	}
+	return newPath
 }
 
 func modelNameFromRepo(repoID string) string {
 	parts := strings.Split(repoID, "/")
 	return strings.TrimSuffix(parts[len(parts)-1], "-GGUF")
+}
+
+type DetectedModels struct {
+	ModelPath  string
+	MMProjPath string
+}
+
+func DetectExistingModels() *DetectedModels {
+	modelsDir := DefaultModelsDir()
+	if _, err := os.Stat(modelsDir); os.IsNotExist(err) {
+		return nil
+	}
+
+	var modelPath, mmprojPath string
+
+	filepath.WalkDir(modelsDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(strings.ToLower(path), ".gguf") {
+			return nil
+		}
+		name := strings.ToLower(d.Name())
+
+		if strings.Contains(name, "mmproj") || strings.Contains(name, "mm0") {
+			if mmprojPath == "" {
+				mmprojPath = path
+			}
+		} else {
+			if modelPath == "" {
+				modelPath = path
+			} else {
+				fi1, _ := os.Stat(modelPath)
+				fi2, _ := os.Stat(path)
+				if fi2 != nil && fi1 != nil && fi2.Size() > fi1.Size() {
+					modelPath = path
+				}
+			}
+		}
+		return nil
+	})
+
+	if modelPath == "" && mmprojPath == "" {
+		return nil
+	}
+
+	return &DetectedModels{
+		ModelPath:  modelPath,
+		MMProjPath: mmprojPath,
+	}
 }

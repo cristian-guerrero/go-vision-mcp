@@ -1,6 +1,7 @@
 package download
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/vision-mcp/internal/config"
 )
@@ -145,12 +147,15 @@ func EnsureModels(cfg *config.Config, onProgress ProgressFunc) error {
 	}
 
 	modelPath := cfg.ModelPath()
+	downloadedModel := false
+
 	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
 		filename := filepath.Base(modelPath)
 		url := HFDownloadURL(cfg.RepoID, filename)
 		if err := DownloadFile(url, modelPath, onProgress); err != nil {
 			return fmt.Errorf("download model: %w", err)
 		}
+		downloadedModel = true
 		if onProgress != nil {
 			onProgress(0, 0)
 		}
@@ -158,25 +163,61 @@ func EnsureModels(cfg *config.Config, onProgress ProgressFunc) error {
 	}
 
 	mmprojPath := cfg.MMProjPath()
+	downloadedMMProj := false
+
 	if cfg.MMProjPathOverride != "" {
 		if _, err := os.Stat(cfg.MMProjPathOverride); err != nil {
 			return fmt.Errorf("mmproj file not found: %s", cfg.MMProjPathOverride)
 		}
-		return nil
+	} else {
+		if _, err := os.Stat(mmprojPath); os.IsNotExist(err) {
+			url := HFDownloadURL(cfg.RepoID, cfg.MMProj)
+			if err := DownloadFile(url, mmprojPath, onProgress); err != nil {
+				return fmt.Errorf("download mmproj: %w", err)
+			}
+			downloadedMMProj = true
+			if onProgress != nil {
+				onProgress(0, 0)
+			}
+			fmt.Println()
+		}
 	}
 
-	if _, err := os.Stat(mmprojPath); os.IsNotExist(err) {
-		url := HFDownloadURL(cfg.RepoID, cfg.MMProj)
-		if err := DownloadFile(url, mmprojPath, onProgress); err != nil {
-			return fmt.Errorf("download mmproj: %w", err)
-		}
-		if onProgress != nil {
-			onProgress(0, 0)
-		}
-		fmt.Println()
+	if downloadedModel || downloadedMMProj {
+		saveModelInfo(cfg, modelPath, mmprojPath)
 	}
 
 	return nil
+}
+
+type ModelInfo struct {
+	RepoID       string `json:"repo_id"`
+	ModelFile    string `json:"model_file"`
+	MMProjFile   string `json:"mmproj_file,omitempty"`
+	Quantization string `json:"quantization"`
+	DownloadURL  string `json:"download_url"`
+	DownloadedAt string `json:"downloaded_at"`
+	Source       string `json:"source"`
+}
+
+func saveModelInfo(cfg *config.Config, modelPath, mmprojPath string) {
+	filename := filepath.Base(modelPath)
+	info := ModelInfo{
+		RepoID:       cfg.RepoID,
+		ModelFile:    filename,
+		MMProjFile:   filepath.Base(mmprojPath),
+		Quantization: cfg.Quantization,
+		DownloadURL:  HFDownloadURL(cfg.RepoID, filename),
+		DownloadedAt: time.Now().Format(time.RFC3339),
+		Source:       "huggingface",
+	}
+
+	infoPath := filepath.Join(cfg.ModelDir(), "model-info.json")
+	data, err := json.MarshalIndent(info, "", "  ")
+	if err != nil {
+		return
+	}
+	os.WriteFile(infoPath, data, 0644)
 }
 
 func FormatBytes(b int64) string {

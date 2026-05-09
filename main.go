@@ -332,13 +332,31 @@ func quickSetup() {
 		cfg.LlamaBackend = hardware.RecommendBackend(hw)
 	}
 
+	if detected := config.DetectExistingModels(); detected != nil {
+		if detected.ModelPath != "" {
+			cfg.ModelPathOverride = detected.ModelPath
+			fmt.Printf("Found existing model: %s\n", filepath.Base(detected.ModelPath))
+		}
+		if detected.MMProjPath != "" {
+			cfg.MMProjPathOverride = detected.MMProjPath
+			fmt.Printf("Found existing mmproj: %s\n", filepath.Base(detected.MMProjPath))
+		}
+		cfg.AutoDownload = false
+		fmt.Println("Using existing models, auto-download disabled.")
+	}
+
 	if err := cfg.Save(); err != nil {
 		log.Fatalf("Error saving config: %v", err)
 	}
 
 	fmt.Printf("Config saved to %s\n", config.ConfigPath())
 	fmt.Printf("Backend: %s, Quantization: %s\n", cfg.LlamaBackend, cfg.Quantization)
-	fmt.Println("Run 'vision-mcp' to start (models will download automatically).")
+
+	if cfg.AutoDownload {
+		fmt.Println("Run 'vision-mcp' to start (models will download automatically).")
+	} else {
+		fmt.Println("Run 'vision-mcp' to start.")
+	}
 
 	promptMCPSetup()
 }
