@@ -4,15 +4,16 @@ A Go-based MCP (Model Context Protocol) server that enables vision analysis for 
 
 ## Features
 
-- **Two MCP tools** — `analyze_image` (custom prompt) and `describe_image` (brief/detailed)
-- **Clipboard tools** — `describe_clipboard` and `analyze_clipboard` (Windows)
-- **Auto-download** — downloads models from HuggingFace and llama-server binaries
+- **Four MCP tools** — `analyze_image`, `describe_image`, `analyze_clipboard`, `describe_clipboard` (Windows)
+- **Lazy loading** — model downloads + llama-server starts only on first tool call, saves bandwidth/VRAM when idle
+- **Auto-download** — downloads models from HuggingFace and llama-server binaries on demand
 - **Hardware-aware** — auto-detects GPU (CUDA/Metal/Vulkan) and recommends optimal quantization
 - **Automatic resume** — interrupted downloads resume from where they left off
-- **Multiple clients** — concurrent MCP clients (Kilo Code, OpenCode, etc.) share the same llama-server
+- **Idle timeout** — automatically unloads model from GPU memory after configurable inactivity (default: 5 min), reloads on next tool call
+- **Multiple clients** — concurrent MCP clients (Kilo Code, OpenCode, etc.) share the same llama-server; automatic recovery if another client stops it
 - **Configurable** — supports manual model paths, LM Studio models, and custom llama-server binaries
 - **TUI wizard** — Bubble Tea interactive setup wizard for guided configuration
-- **Graceful shutdown** — SIGTERM → 3s wait → SIGKILL
+- **Graceful shutdown** — kills llama-server on client disconnect (no orphaned processes on Windows)
 
 ## System Requirements
 
@@ -76,11 +77,14 @@ Configuration is stored at `~/.go-vision-mcp/config.json` (Windows: `%USERPROFIL
   "custom_prompt": "Analyze this image and respond to: %s",
   "model_path": "",
   "mmproj_path": "",
-  "llama_server_path": ""
+  "llama_server_path": "",
+  "idle_timeout": 5
 }
 ```
 
 `model_path`, `mmproj_path`, and `llama_server_path` override auto-download when set to a non-empty path.
+
+`idle_timeout` controls how many minutes of inactivity before the model is unloaded from GPU memory (0 = disabled, default: 5). The model automatically reloads on the next tool call.
 
 ## Available Tools
 

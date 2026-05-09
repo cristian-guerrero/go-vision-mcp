@@ -28,6 +28,7 @@ type Config struct {
 	MMProjPathOverride string `json:"mmproj_path"`
 	LlamaServerPath    string `json:"llama_server_path"`
 	LlamaServerMode    string `json:"llama_server_mode"`
+	IdleTimeout        int    `json:"idle_timeout"`
 }
 
 func DefaultConfig() Config {
@@ -45,6 +46,7 @@ func DefaultConfig() Config {
 		AutoDownload:   true,
 		DownloadMirror: "https://github.com/ggml-org/llama.cpp/releases",
 		CustomPrompt:   "Analyze this image and respond to: %s",
+		IdleTimeout:    5,
 	}
 }
 

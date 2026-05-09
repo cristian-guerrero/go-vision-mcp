@@ -1,3 +1,5 @@
+//go:build !windows
+
 package installer
 
 import (
@@ -6,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 )
+
+func ensureInPathWindows(installDir string) error { return nil }
 
 func ensureInPathUnix(installDir string) error {
 	home, _ := os.UserHomeDir()

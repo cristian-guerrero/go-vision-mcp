@@ -40,13 +40,23 @@ MCP server starts immediately on STDIO to respond to handshake. Model download a
 
 1. Load config
 2. Detect hardware, apply defaults
-3. Download model + mmproj (if missing)
-4. Find llama-server (PATH → download → install dir)
-5. Check if port 8001 already has llama-server → reuse if yes
-6. Start llama-server, wait for health
-7. Signal tools as ready
+3. Check if port 8001 already has llama-server → reuse if yes
+4. Signal tools as ready (prep work done)
+5. Model download + llama-server start happen **lazily** on first tool call via `restartFunc`
 
-Tools block on `waitReady()` until llama-server responds. Multiple MCP clients share the same llama-server instance.
+Tools block on `waitReady()` until model download and config are resolved. Llama-server itself starts on-demand via `chatCompletion()` → `restartFunc`, so no model is loaded if no tool is ever called. Multiple MCP clients share the same llama-server instance.
+
+**Note:** The first tool call after starting the MCP server (or after idle timeout) will be slow because it needs to download the model (1st time only) and start llama-server. Subsequent calls are fast.
+
+### Idle Timeout (`idle_timeout`)
+
+When `idle_timeout > 0` (default: 5 minutes), a background goroutine monitors tool call activity every 30 seconds. If no tool has been called within the timeout window, llama-server is stopped to free GPU memory. On the next tool call, `chatCompletion()` detects the unloaded state and automatically restarts llama-server before making the request. Set `idle_timeout: 0` in config.json to disable.
+
+- `main.go` starts the idle monitor goroutine after llama-server is ready
+- `ToolHandler.IdleTime()` returns duration since last tool call
+- `ToolHandler.SetLoaded(false)` marks the server as stopped
+- `ToolHandler.restartFunc` (set by `main.go`) creates a new `llamaserver.Server` instance
+- The restart function updates the closure variable `srv` so the signal handler and idle monitor reference the current instance
 
 ## Tool Handler Quirk
 
@@ -98,6 +108,8 @@ Args passed to llama-server:
 
 All fields are emitted in config.json even when empty, so users can manually edit:
 
+All fields are emitted in config.json even when empty, so users can manually edit:
+
 ```json
 {
   "repo_id": "unsloth/Qwen3.5-4B-GGUF",
@@ -113,6 +125,8 @@ All fields are emitted in config.json even when empty, so users can manually edi
 ## Graceful Shutdown
 
 `llamaserver.Stop()` sends SIGTERM → waits 3 seconds → SIGKILL. On process signal, same flow runs in the signal handler.
+
+When the MCP client disconnects (stdin closes), `ServeStdio()` returns and `handler.Stop()` is called to kill llama-server. This prevents orphaned processes on Windows. The same cleanup also runs on SIGINT/SIGTERM via `signal.Notify`.
 
 ## Download Resume
 

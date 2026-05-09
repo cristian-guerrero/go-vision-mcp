@@ -725,67 +725,102 @@ func runServer() {
 			cfg.Save()
 		}
 
-		if cfg.AutoDownload {
-			log.Printf("Checking models...")
-			if err := download.EnsureModels(cfg, downloadProgress("Model")); err != nil {
-				log.Fatalf("Error downloading models: %v", err)
-			}
-		}
-
-		llamaBin, newLlamaPath, err := resolveLlamaServer(cfg)
-		if err != nil {
-			log.Fatalf("Could not get llama-server: %v", err)
-		}
-		if newLlamaPath != "" {
-			cfg.LlamaServerPath = newLlamaPath
-			cfg.Save()
-		}
-
 		healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", cfg.Port)
 		hc := &http.Client{Timeout: 2 * time.Second}
+		alreadyRunning := false
 		if resp, err := hc.Get(healthURL); err == nil {
 			resp.Body.Close()
 			log.Printf("llama-server already running on port %d, reusing", cfg.Port)
 			handler.SetLlamaURL(fmt.Sprintf("http://127.0.0.1:%d", cfg.Port))
-			handler.SetReady()
-			return
+			handler.SetLoaded(true)
+			alreadyRunning = true
 		}
 
-		ctx, cancel := context.WithCancel(context.Background())
+		var srv *llamaserver.Server
 
-		log.Printf("Starting llama-server on port %d...", cfg.Port)
-		srv := llamaserver.New(
-			cfg.ModelPath(),
-			cfg.MMProjPath(),
-			cfg.Port,
-			cfg.NGL,
-			cfg.NCtx,
-			cfg.FlashAttn,
-			llamaBin,
-		)
-		if err := srv.Start(ctx); err != nil {
-			log.Fatalf("Error starting llama-server: %v", err)
+		if !alreadyRunning {
+			_, cancel := context.WithCancel(context.Background())
+
+			handler.SetStopFunc(func() {
+				cancel()
+				handler.SetLoaded(false)
+				if srv != nil {
+					srv.Stop()
+				}
+			})
 		}
-		log.Printf("llama-server ready")
 
-		handler.SetLlamaURL(srv.URL())
+		handler.SetRestartFunc(func(restartCtx context.Context) error {
+			if cfg.AutoDownload {
+				log.Printf("Checking models...")
+				if err := download.EnsureModels(cfg, downloadProgress("Model")); err != nil {
+					return fmt.Errorf("download models: %w", err)
+				}
+			}
+
+			llamaBin, newLlamaPath, err := resolveLlamaServer(cfg)
+			if err != nil {
+				return fmt.Errorf("resolve llama-server: %w", err)
+			}
+			if newLlamaPath != "" {
+				cfg.LlamaServerPath = newLlamaPath
+				cfg.Save()
+			}
+
+			newSrv := llamaserver.New(
+				cfg.ModelPath(),
+				cfg.MMProjPath(),
+				cfg.Port,
+				cfg.NGL,
+				cfg.NCtx,
+				cfg.FlashAttn,
+				llamaBin,
+			)
+			if err := newSrv.Start(restartCtx); err != nil {
+				return fmt.Errorf("start llama-server: %w", err)
+			}
+			srv = newSrv
+			handler.SetLlamaURL(srv.URL())
+			handler.SetLoaded(true)
+			return nil
+		})
+
 		handler.SetReady()
+
+		if !alreadyRunning && cfg.IdleTimeout > 0 {
+			idleDuration := time.Duration(cfg.IdleTimeout) * time.Minute
+			go func() {
+				ticker := time.NewTicker(30 * time.Second)
+				defer ticker.Stop()
+				for range ticker.C {
+					if !handler.IsLoaded() {
+						continue
+					}
+					if handler.IdleTime() > idleDuration {
+						log.Printf("Idle timeout (%d min), stopping llama-server to free memory", cfg.IdleTimeout)
+						handler.Stop()
+					}
+				}
+			}()
+		}
 
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		go func() {
 			<-sigCh
 			log.Printf("Shutting down...")
-			cancel()
-			srv.Stop()
+			handler.Stop()
 			os.Exit(0)
 		}()
 	}()
 
 	log.Printf("MCP server ready (STDIO mode)")
 	if err := server.ServeStdio(mcpServer); err != nil {
-		log.Fatalf("MCP server error: %v", err)
+		log.Printf("MCP server error: %v", err)
 	}
+
+	log.Printf("MCP client disconnected, cleaning up...")
+	handler.Stop()
 }
 
 func displayStatus() {
@@ -797,6 +832,7 @@ func displayStatus() {
 	fmt.Printf("MMProj:       %s\n", cfg.MMProj)
 	fmt.Printf("Backend:      %s\n", cfg.LlamaBackend)
 	fmt.Printf("Port:         %d\n", cfg.Port)
+	fmt.Printf("Idle timeout: %d min\n", cfg.IdleTimeout)
 	fmt.Printf("Model path:   %s\n", cfg.ModelPath())
 	fmt.Printf("MMProj path:  %s\n", cfg.MMProjPath())
 

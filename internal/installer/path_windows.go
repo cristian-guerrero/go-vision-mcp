@@ -1,3 +1,5 @@
+//go:build windows
+
 package installer
 
 import (
@@ -39,6 +41,8 @@ func ensureInPathWindows(installDir string) error {
 	broadcastEnvChange()
 	return nil
 }
+
+func ensureInPathUnix(installDir string) error { return nil }
 
 func broadcastEnvChange() {
 	user32 := syscall.NewLazyDLL("user32.dll")
