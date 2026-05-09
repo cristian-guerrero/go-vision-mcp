@@ -50,7 +50,7 @@ Pass it to your agent so it can configure the MCP server automatically.
 {
   "context_servers": {
     "vision-mcp": {
-      "command": ["%s"],
+      "command": "%s",
       "args": [],
       "env": {}
     }

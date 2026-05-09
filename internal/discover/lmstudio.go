@@ -8,11 +8,12 @@ import (
 )
 
 type ModelInfo struct {
-	Name      string
-	Path      string
-	MMDir     string
-	HasMMProj bool
-	Size      int64
+	Name       string
+	Path       string
+	MMDir      string
+	HasMMProj  bool
+	MMProjPath string // direct path to mmproj (for Ollama), takes precedence over MMDir
+	Size       int64
 }
 
 func FindLMModels() ([]ModelInfo, error) {
@@ -55,6 +56,11 @@ func scanLMDir(dir string) ([]ModelInfo, error) {
 		}
 
 		if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".gguf") {
+			name := strings.ToLower(info.Name())
+			if strings.Contains(name, "mmproj") || strings.HasPrefix(name, "mm0") {
+				return nil
+			}
+
 			dir := filepath.Dir(path)
 			mi := ModelInfo{
 				Name:  strings.TrimSuffix(info.Name(), filepath.Ext(info.Name())),

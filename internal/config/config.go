@@ -27,6 +27,7 @@ type Config struct {
 	ModelPathOverride  string `json:"model_path"`
 	MMProjPathOverride string `json:"mmproj_path"`
 	LlamaServerPath    string `json:"llama_server_path"`
+	LlamaServerMode    string `json:"llama_server_mode"`
 }
 
 func DefaultConfig() Config {

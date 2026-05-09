@@ -1,6 +1,7 @@
 package discover
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -53,7 +54,7 @@ type PiMCPConfig struct {
 }
 
 type ZedContextServer struct {
-	Command []string          `json:"command,omitempty"`
+	Command string            `json:"command,omitempty"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 }
@@ -180,6 +181,7 @@ func detectZed(binaryPath string) AgentInfo {
 		return info
 	}
 
+	data = normalizeJSONC(data)
 	var cfg ZedSettings
 	if json.Unmarshal(data, &cfg) == nil {
 		if _, exists := cfg.ContextServers["vision-mcp"]; exists {
@@ -354,6 +356,7 @@ func configureZedMCP(agent AgentInfo, binaryPath string) error {
 		return err
 	}
 
+	data = normalizeJSONC(data)
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
@@ -367,7 +370,7 @@ func configureZedMCP(agent AgentInfo, binaryPath string) error {
 
 	existing, _ := servers["vision-mcp"].(map[string]any)
 	entry := map[string]any{
-		"command": []string{binaryPath},
+		"command": binaryPath,
 		"args":    []string{},
 		"env":     map[string]any{},
 	}
@@ -375,7 +378,7 @@ func configureZedMCP(agent AgentInfo, binaryPath string) error {
 		for k, v := range existing {
 			entry[k] = v
 		}
-		entry["command"] = []string{binaryPath}
+		entry["command"] = binaryPath
 		if _, ok := entry["args"]; !ok {
 			entry["args"] = []string{}
 		}
@@ -386,6 +389,66 @@ func configureZedMCP(agent AgentInfo, binaryPath string) error {
 	servers["vision-mcp"] = entry
 
 	return writeJSON(path, raw)
+}
+
+func normalizeJSONC(data []byte) []byte {
+	var out bytes.Buffer
+	s := string(data)
+	inString := false
+	escape := false
+
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+
+		if escape {
+			out.WriteByte(ch)
+			escape = false
+			continue
+		}
+
+		if ch == '\\' && inString {
+			escape = true
+			out.WriteByte(ch)
+			continue
+		}
+
+		if ch == '"' {
+			inString = !inString
+			out.WriteByte(ch)
+			continue
+		}
+
+		if !inString {
+			if ch == '/' && i+1 < len(s) && s[i+1] == '/' {
+				for i+1 < len(s) && s[i] != '\n' {
+					i++
+				}
+				out.WriteByte('\n')
+				continue
+			}
+			if ch == '/' && i+1 < len(s) && s[i+1] == '*' {
+				i += 2
+				for i+1 < len(s) && !(s[i] == '*' && s[i+1] == '/') {
+					i++
+				}
+				i++
+				continue
+			}
+			if ch == ',' {
+				j := i + 1
+				for j < len(s) && (s[j] == ' ' || s[j] == '\t' || s[j] == '\n' || s[j] == '\r') {
+					j++
+				}
+				if j < len(s) && (s[j] == ']' || s[j] == '}') {
+					continue
+				}
+			}
+		}
+
+		out.WriteByte(ch)
+	}
+
+	return out.Bytes()
 }
 
 func writeJSON(path string, v any) error {

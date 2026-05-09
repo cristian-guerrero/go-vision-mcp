@@ -52,8 +52,15 @@ func FetchLatestRelease() (*Release, error) {
 	return &release, nil
 }
 
-func findAsset(release *Release, backend string) *ReleaseAsset {
+type matchResult struct {
+	primary   *ReleaseAsset
+	secondary *ReleaseAsset // extra runtime DLLs (cudart)
+}
+
+func findAssets(release *Release, backend string) *matchResult {
 	osKey := osKey()
+	var standard, extra []*ReleaseAsset
+
 	for i := range release.Assets {
 		asset := &release.Assets[i]
 		name := strings.ToLower(asset.Name)
@@ -65,37 +72,36 @@ func findAsset(release *Release, backend string) *ReleaseAsset {
 		switch backend {
 		case "cuda":
 			if strings.Contains(name, "cuda") {
-				return asset
+				if strings.HasPrefix(name, "llama") {
+					standard = append(standard, asset)
+				} else if strings.HasPrefix(name, "cudart") {
+					extra = append(extra, asset)
+				}
 			}
 		case "vulkan":
 			if strings.Contains(name, "vulkan") {
-				return asset
+				standard = append(standard, asset)
 			}
 		case "metal":
 			if strings.Contains(name, "macos") || strings.Contains(name, "metal") {
-				return asset
+				standard = append(standard, asset)
 			}
 		case "cpu":
 			if !strings.Contains(name, "cuda") && !strings.Contains(name, "vulkan") {
-				return asset
+				standard = append(standard, asset)
 			}
 		}
 	}
 
-	for i := range release.Assets {
-		asset := &release.Assets[i]
-		name := strings.ToLower(asset.Name)
-
-		if !strings.Contains(name, osKey) {
-			continue
-		}
-		if backend == "cpu" {
-			return asset
-		}
-		return asset
+	if len(standard) == 0 {
+		return nil
 	}
 
-	return nil
+	result := &matchResult{primary: standard[0]}
+	if len(extra) > 0 {
+		result.secondary = extra[0]
+	}
+	return result
 }
 
 func osKey() string {
@@ -111,20 +117,79 @@ func osKey() string {
 	}
 }
 
-func DownloadLlamaBinary(asset *ReleaseAsset, destDir string, progress ProgressFunc) (string, error) {
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		return "", fmt.Errorf("create dest dir: %w", err)
+func llamaServerDir(destDir string) string {
+	return filepath.Join(destDir, "llama-server")
+}
+
+func LlamaServerDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".go-vision-mcp", "llama-server")
+}
+
+func EnsureLlamaBinary(backend, destDir string, progress ProgressFunc) (string, error) {
+	binDir := llamaServerDir(destDir)
+	binName := executableName("llama-server")
+	binaryPath := filepath.Join(binDir, binName)
+
+	if _, err := os.Stat(binaryPath); err == nil {
+		hasDLLs := false
+		entries, _ := os.ReadDir(binDir)
+		for _, e := range entries {
+			name := strings.ToLower(e.Name())
+			if strings.HasSuffix(name, ".dll") || strings.HasSuffix(name, ".so") || strings.HasSuffix(name, ".dylib") {
+				hasDLLs = true
+				break
+			}
+		}
+		if hasDLLs {
+			return binaryPath, nil
+		}
+		os.Remove(binaryPath)
 	}
 
+	if _, err := os.Stat(filepath.Join(binDir, "llama-server")); err == nil && runtime.GOOS != "windows" {
+		return filepath.Join(binDir, "llama-server"), nil
+	}
+
+	release, err := FetchLatestRelease()
+	if err != nil {
+		fmt.Printf("Warning: Failed to fetch releases: %v\n", err)
+		return "", fmt.Errorf("could not fetch releases and binary not found: %w", err)
+	}
+
+	matches := findAssets(release, backend)
+	if matches == nil {
+		return "", fmt.Errorf("no matching llama-server release found for backend %q on %s", backend, runtime.GOOS)
+	}
+
+	fmt.Printf("Found release: %s\n", release.TagName)
+
+	os.MkdirAll(binDir, 0755)
+
+	binPath, err := downloadAndExtract(matches.primary, binDir, progress)
+	if err != nil {
+		return "", err
+	}
+
+	if matches.secondary != nil {
+		if err := downloadAndExtractExtra(matches.secondary, binDir, progress); err != nil {
+			fmt.Printf("Warning: could not download extra runtime DLLs: %v\n", err)
+		}
+	}
+
+	return binPath, nil
+}
+
+func downloadAndExtract(asset *ReleaseAsset, binDir string, progress ProgressFunc) (string, error) {
 	fmt.Printf("Downloading %s...\n", asset.Name)
 
-	tmpPath := filepath.Join(destDir, asset.Name)
+	tmpPath := filepath.Join(binDir, asset.Name)
 	if err := DownloadFile(asset.URL, tmpPath, progress); err != nil {
 		return "", fmt.Errorf("download binary archive: %w", err)
 	}
 	defer os.Remove(tmpPath)
 
-	binaryPath, err := extractLlamaBinary(tmpPath, destDir)
+	binaryPath, err := extractLlamaBinary(tmpPath, binDir)
 	if err != nil {
 		return "", fmt.Errorf("extract binary: %w", err)
 	}
@@ -132,22 +197,51 @@ func DownloadLlamaBinary(asset *ReleaseAsset, destDir string, progress ProgressF
 	return binaryPath, nil
 }
 
+func downloadAndExtractExtra(asset *ReleaseAsset, binDir string, progress ProgressFunc) error {
+	fmt.Printf("Downloading %s (CUDA runtime)...\n", asset.Name)
+
+	tmpPath := filepath.Join(binDir, asset.Name)
+	if err := DownloadFile(asset.URL, tmpPath, progress); err != nil {
+		return fmt.Errorf("download: %w", err)
+	}
+	defer os.Remove(tmpPath)
+
+	return extractArchive(tmpPath, binDir)
+}
+
+func extractArchive(archivePath, destDir string) error {
+	ext := strings.ToLower(filepath.Ext(archivePath))
+	switch ext {
+	case ".zip":
+		_, err := extractFromZip(archivePath, destDir, false)
+		return err
+	case ".gz":
+		_, err := extractFromTarGz(archivePath, destDir, false)
+		return err
+	case ".tar":
+		_, err := extractFromTar(archivePath, destDir, false)
+		return err
+	default:
+		return fmt.Errorf("unsupported archive format: %s", ext)
+	}
+}
+
 func extractLlamaBinary(archivePath, destDir string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(archivePath))
 
 	switch ext {
 	case ".zip":
-		return extractFromZip(archivePath, destDir)
+		return extractFromZip(archivePath, destDir, true)
 	case ".gz":
-		return extractFromTarGz(archivePath, destDir)
+		return extractFromTarGz(archivePath, destDir, true)
 	case ".tar":
-		return extractFromTar(archivePath, destDir)
+		return extractFromTar(archivePath, destDir, true)
 	default:
 		return "", fmt.Errorf("unsupported archive format: %s", ext)
 	}
 }
 
-func extractFromZip(zipPath, destDir string) (string, error) {
+func extractFromZip(zipPath, destDir string, findServer bool) (string, error) {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return "", fmt.Errorf("open zip: %w", err)
@@ -155,38 +249,55 @@ func extractFromZip(zipPath, destDir string) (string, error) {
 	defer r.Close()
 
 	var binaryPath string
-	binName := executableName("llama-server")
 
 	for _, f := range r.File {
-		if strings.HasSuffix(strings.ToLower(f.Name), binName) || strings.EqualFold(filepath.Base(f.Name), binName) {
-			src, err := f.Open()
-			if err != nil {
-				return "", fmt.Errorf("open zip entry: %w", err)
-			}
-			defer src.Close()
+		if f.FileInfo().IsDir() {
+			continue
+		}
 
-			binaryPath = filepath.Join(destDir, binName)
-			dst, err := os.Create(binaryPath)
-			if err != nil {
-				return "", fmt.Errorf("create binary: %w", err)
-			}
-			defer dst.Close()
+		base := strings.ToLower(filepath.Base(f.Name))
+		isServer := findServer && strings.Contains(base, "llama-server") && strings.HasSuffix(base, ".exe")
 
-			if _, err := io.Copy(dst, src); err != nil {
-				return "", fmt.Errorf("extract binary: %w", err)
-			}
+		destPath := filepath.Join(destDir, filepath.Base(f.Name))
 
+		src, err := f.Open()
+		if err != nil {
+			return "", fmt.Errorf("open zip entry %s: %w", f.Name, err)
+		}
+
+		dst, err := os.Create(destPath)
+		if err != nil {
+			src.Close()
+			return "", fmt.Errorf("create %s: %w", f.Name, err)
+		}
+
+		_, err = io.Copy(dst, src)
+		src.Close()
+		dst.Close()
+		if err != nil {
+			return "", fmt.Errorf("extract %s: %w", f.Name, err)
+		}
+
+		if isServer {
+			binaryPath = destPath
 			if runtime.GOOS != "windows" {
-				os.Chmod(binaryPath, 0755)
+				os.Chmod(destPath, 0755)
 			}
-			return binaryPath, nil
 		}
 	}
 
-	return "", fmt.Errorf("llama-server not found in archive")
+	if findServer && binaryPath == "" {
+		var names []string
+		for _, f := range r.File {
+			names = append(names, f.Name)
+		}
+		return "", fmt.Errorf("llama-server not found in archive. Contents: %s", strings.Join(names, ", "))
+	}
+
+	return binaryPath, nil
 }
 
-func extractFromTarGz(tgzPath, destDir string) (string, error) {
+func extractFromTarGz(tgzPath, destDir string, findServer bool) (string, error) {
 	f, err := os.Open(tgzPath)
 	if err != nil {
 		return "", fmt.Errorf("open tgz: %w", err)
@@ -199,22 +310,22 @@ func extractFromTarGz(tgzPath, destDir string) (string, error) {
 	}
 	defer gzr.Close()
 
-	return extractTar(gzr, destDir)
+	return extractTar(gzr, destDir, findServer)
 }
 
-func extractFromTar(tarPath, destDir string) (string, error) {
+func extractFromTar(tarPath, destDir string, findServer bool) (string, error) {
 	f, err := os.Open(tarPath)
 	if err != nil {
 		return "", fmt.Errorf("open tar: %w", err)
 	}
 	defer f.Close()
 
-	return extractTar(f, destDir)
+	return extractTar(f, destDir, findServer)
 }
 
-func extractTar(r io.Reader, destDir string) (string, error) {
+func extractTar(r io.Reader, destDir string, findServer bool) (string, error) {
 	tr := tar.NewReader(r)
-	binName := executableName("llama-server")
+	var binaryPath string
 
 	for {
 		hdr, err := tr.Next()
@@ -225,26 +336,38 @@ func extractTar(r io.Reader, destDir string) (string, error) {
 			return "", fmt.Errorf("read tar entry: %w", err)
 		}
 
-		if strings.HasSuffix(strings.ToLower(hdr.Name), binName) {
-			binaryPath := filepath.Join(destDir, binName)
-			dst, err := os.Create(binaryPath)
-			if err != nil {
-				return "", fmt.Errorf("create binary: %w", err)
-			}
-			defer dst.Close()
+		if hdr.FileInfo().IsDir() {
+			continue
+		}
 
-			if _, err := io.Copy(dst, tr); err != nil {
-				return "", fmt.Errorf("extract binary: %w", err)
-			}
+		base := strings.ToLower(filepath.Base(hdr.Name))
+		isServer := findServer && strings.Contains(base, "llama-server") && strings.HasSuffix(base, ".exe")
 
+		destPath := filepath.Join(destDir, filepath.Base(hdr.Name))
+
+		dst, err := os.Create(destPath)
+		if err != nil {
+			return "", fmt.Errorf("create %s: %w", hdr.Name, err)
+		}
+
+		_, err = io.Copy(dst, tr)
+		dst.Close()
+		if err != nil {
+			return "", fmt.Errorf("extract %s: %w", hdr.Name, err)
+		}
+
+		if isServer {
+			binaryPath = destPath
 			if runtime.GOOS != "windows" {
-				os.Chmod(binaryPath, 0755)
+				os.Chmod(destPath, 0755)
 			}
-			return binaryPath, nil
 		}
 	}
 
-	return "", fmt.Errorf("llama-server not found in archive")
+	if findServer && binaryPath == "" {
+		return "", fmt.Errorf("llama-server not found in archive")
+	}
+	return binaryPath, nil
 }
 
 func executableName(name string) string {
@@ -252,31 +375,4 @@ func executableName(name string) string {
 		return name + ".exe"
 	}
 	return name
-}
-
-func EnsureLlamaBinary(backend, destDir string, progress ProgressFunc) (string, error) {
-	binName := executableName("llama-server")
-	binaryPath := filepath.Join(destDir, binName)
-
-	if _, err := os.Stat(binaryPath); err == nil {
-		return binaryPath, nil
-	}
-
-	if _, err := os.Stat(filepath.Join(destDir, "llama-server")); err == nil && runtime.GOOS != "windows" {
-		return filepath.Join(destDir, "llama-server"), nil
-	}
-
-	release, err := FetchLatestRelease()
-	if err != nil {
-		fmt.Printf("Warning: Failed to fetch releases: %v\n", err)
-		return "", fmt.Errorf("could not fetch releases and binary not found: %w", err)
-	}
-
-	asset := findAsset(release, backend)
-	if asset == nil {
-		return "", fmt.Errorf("no matching llama-server release found for backend %q on %s", backend, runtime.GOOS)
-	}
-
-	fmt.Printf("Found release: %s\n", release.TagName)
-	return DownloadLlamaBinary(asset, destDir, progress)
 }

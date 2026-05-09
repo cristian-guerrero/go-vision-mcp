@@ -23,8 +23,9 @@ type Wizard struct {
 	installDir  string
 	downloadDir string
 
-	done bool
-	err  error
+	done      bool
+	cancelled bool
+	err       error
 }
 
 func NewWizard() *Wizard {
@@ -60,6 +61,9 @@ func RunWizard() (*config.Config, error) {
 	if result.err != nil {
 		return nil, result.err
 	}
+	if result.cancelled {
+		return nil, nil
+	}
 	return result.cfg, nil
 }
 
@@ -72,6 +76,7 @@ func (w *Wizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
+			w.cancelled = true
 			return w, tea.Quit
 
 		case "up", "k":

@@ -99,7 +99,7 @@ func DownloadFile(url, destPath string, progress ProgressFunc) error {
 		return fmt.Errorf("downloaded file is empty")
 	}
 
-	if err := os.Rename(tmpPath, destPath); err != nil {
+	if err := renameWithRetry(tmpPath, destPath); err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("rename: %w", err)
 	}
@@ -218,6 +218,17 @@ func saveModelInfo(cfg *config.Config, modelPath, mmprojPath string) {
 		return
 	}
 	os.WriteFile(infoPath, data, 0644)
+}
+
+func renameWithRetry(src, dst string) error {
+	var err error
+	for i := 0; i < 5; i++ {
+		if err = os.Rename(src, dst); err == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(200*(i+1)) * time.Millisecond)
+	}
+	return err
 }
 
 func FormatBytes(b int64) string {

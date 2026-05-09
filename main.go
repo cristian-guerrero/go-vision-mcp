@@ -651,6 +651,54 @@ func findProcessOnPort(port int) int {
 	return pid
 }
 
+func resolveLlamaServer(cfg *config.Config) (binPath, newPath string, err error) {
+	mode := cfg.LlamaServerMode
+	if mode == "" && cfg.LlamaServerPath == "auto-download" {
+		mode = "auto"
+	}
+
+	switch mode {
+	case "auto":
+		log.Printf("Downloading llama-server...")
+		binPath, err = download.EnsureLlamaBinary(cfg.LlamaBackend, config.InstallDir(), downloadProgress("llama-server"))
+		if err != nil {
+			return "", "", err
+		}
+		log.Printf("llama-server downloaded to: %s", binPath)
+		return binPath, binPath, nil
+
+	case "custom":
+		if cfg.LlamaServerPath == "" {
+			return "", "", fmt.Errorf("llama_server_mode is 'custom' but llama_server_path is empty")
+		}
+		binPath = cfg.LlamaServerPath
+		if fi, err := os.Stat(binPath); err == nil && fi.IsDir() {
+			name := "llama-server"
+			if runtime.GOOS == "windows" {
+				name += ".exe"
+			}
+			binPath = filepath.Join(binPath, name)
+		}
+		log.Printf("Using configured llama-server: %s", binPath)
+		return binPath, "", nil
+
+	default:
+		found, lookupErr := discover.FindSystemLlamaServer()
+		if lookupErr == nil {
+			log.Printf("Using llama-server from PATH: %s", found)
+			return found, "", nil
+		}
+		log.Printf("llama-server not found, downloading...")
+		binPath, downloadErr := download.EnsureLlamaBinary(cfg.LlamaBackend, config.InstallDir(), downloadProgress("llama-server"))
+		if downloadErr != nil {
+			return "", "", downloadErr
+		}
+		log.Printf("llama-server downloaded to: %s", binPath)
+		cfg.LlamaServerMode = "auto"
+		return binPath, binPath, nil
+	}
+}
+
 func runServer() {
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -684,24 +732,13 @@ func runServer() {
 			}
 		}
 
-		llamaBin := cfg.LlamaBin
-		if cfg.LlamaServerPath != "" {
-			llamaBin = cfg.LlamaServerPath
-			log.Printf("Using configured llama-server: %s", llamaBin)
-		} else {
-			found, err := discover.FindSystemLlamaServer()
-			if err != nil {
-				log.Printf("llama-server not found, downloading...")
-				binPath, err := download.EnsureLlamaBinary(cfg.LlamaBackend, config.InstallDir(), downloadProgress("llama-server"))
-				if err != nil {
-					log.Fatalf("Could not get llama-server: %v", err)
-				}
-				llamaBin = binPath
-				log.Printf("llama-server downloaded to: %s", llamaBin)
-			} else {
-				llamaBin = found
-				log.Printf("Using llama-server from: %s", llamaBin)
-			}
+		llamaBin, newLlamaPath, err := resolveLlamaServer(cfg)
+		if err != nil {
+			log.Fatalf("Could not get llama-server: %v", err)
+		}
+		if newLlamaPath != "" {
+			cfg.LlamaServerPath = newLlamaPath
+			cfg.Save()
 		}
 
 		healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", cfg.Port)

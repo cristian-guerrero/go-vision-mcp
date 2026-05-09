@@ -3,6 +3,7 @@ package setup
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -31,8 +32,9 @@ type ManualWizard struct {
 	input    string
 	inputErr string
 
-	done bool
-	err  error
+	done      bool
+	cancelled bool
+	err       error
 }
 
 func RunManualWizard() (*config.Config, error) {
@@ -45,6 +47,9 @@ func RunManualWizard() (*config.Config, error) {
 	result := m.(*ManualWizard)
 	if result.err != nil {
 		return nil, result.err
+	}
+	if result.cancelled {
+		return nil, nil
 	}
 	return result.cfg, nil
 }
@@ -76,15 +81,16 @@ func (w *ManualWizard) Init() tea.Cmd {
 func (w *ManualWizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if w.step == 3 {
+		if w.step == 3 && w.modelSource == "custom" {
 			return w.handleTextInput(msg)
 		}
-		if w.step == 4 {
+		if w.step == 4 && w.llamaSource == "custom" {
 			return w.handleTextInput(msg)
 		}
 
 		switch msg.String() {
 		case "q", "ctrl+c":
+			w.cancelled = true
 			return w, tea.Quit
 
 		case "up", "k":
@@ -101,10 +107,25 @@ func (w *ManualWizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if w.step > 0 {
 				w.step--
 				w.cursorIdx = 0
+				// Skip back over custom-only steps that don't apply
+				for w.step > 0 {
+					skipped := false
+					if w.step == 3 && w.modelSource != "custom" {
+						w.step--
+						skipped = true
+					}
+					if w.step == 4 && w.llamaSource != "custom" {
+						w.step--
+						skipped = true
+					}
+					if !skipped {
+						break
+					}
+				}
 			}
 
 		case "enter":
-			if w.step == w.totalSteps-1 {
+			if w.step >= w.totalSteps-1 {
 				w.saveConfig()
 				w.done = true
 				return w, tea.Quit
@@ -119,6 +140,7 @@ func (w *ManualWizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (w *ManualWizard) handleTextInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
+		w.cancelled = true
 		return w, tea.Quit
 
 	case "enter":
@@ -154,8 +176,7 @@ func (w *ManualWizard) textSubmit() {
 		w.modelPath = w.input
 		w.input = ""
 		w.inputErr = ""
-		w.step++
-		w.cursorIdx = 0
+		w.nextStep()
 
 	case 4:
 		if w.input != "" {
@@ -169,8 +190,7 @@ func (w *ManualWizard) textSubmit() {
 		}
 		w.input = ""
 		w.inputErr = ""
-		w.step++
-		w.cursorIdx = 0
+		w.nextStep()
 	}
 }
 
@@ -180,11 +200,29 @@ func (w *ManualWizard) advanceStep() {
 		switch w.cursorIdx {
 		case 0:
 			w.modelSource = "download"
+			w.modelPath = ""
+			w.mmprojPath = ""
 		case 1:
 			w.modelSource = "lmstudio"
 			models, _ := discover.FindLMModels()
-			w.lmModels = models
+			var visionModels []discover.ModelInfo
+			for _, m := range models {
+				if m.HasMMProj {
+					visionModels = append(visionModels, m)
+				}
+			}
+			w.lmModels = visionModels
 		case 2:
+			w.modelSource = "ollama"
+			models, _ := discover.FindOllamaModels()
+			var visionModels []discover.ModelInfo
+			for _, m := range models {
+				if m.HasMMProj {
+					visionModels = append(visionModels, m)
+				}
+			}
+			w.lmModels = visionModels
+		case 3:
 			w.modelSource = "custom"
 		}
 		if w.modelSource == "custom" {
@@ -193,16 +231,20 @@ func (w *ManualWizard) advanceStep() {
 			return
 		}
 	case 1:
-		if w.modelSource == "lmstudio" && len(w.lmModels) > 0 && w.cursorIdx >= 0 && w.cursorIdx < len(w.lmModels) {
+		if len(w.lmModels) > 0 && w.cursorIdx >= 0 && w.cursorIdx < len(w.lmModels) {
 			m := w.lmModels[w.cursorIdx]
 			w.modelPath = m.Path
 			if m.HasMMProj {
-				entries, _ := os.ReadDir(m.MMDir)
-				for _, e := range entries {
-					name := strings.ToLower(e.Name())
-					if strings.Contains(name, "mmproj") && strings.HasSuffix(name, ".gguf") {
-						w.mmprojPath = m.MMDir + "/" + e.Name()
-						break
+				if m.MMProjPath != "" {
+					w.mmprojPath = m.MMProjPath
+				} else {
+					entries, _ := os.ReadDir(m.MMDir)
+					for _, e := range entries {
+						name := strings.ToLower(e.Name())
+						if strings.Contains(name, "mmproj") && strings.HasSuffix(name, ".gguf") {
+							w.mmprojPath = filepath.Join(m.MMDir, e.Name())
+							break
+						}
 					}
 				}
 			}
@@ -211,11 +253,13 @@ func (w *ManualWizard) advanceStep() {
 		switch w.cursorIdx {
 		case 0:
 			w.llamaSource = "system"
+			w.llamaServerPath = ""
 			if path, err := discover.FindSystemLlamaServer(); err == nil {
 				w.llamaServerPath = path
 			}
 		case 1:
 			w.llamaSource = "download"
+			w.llamaServerPath = ""
 		case 2:
 			w.llamaSource = "custom"
 		}
@@ -226,8 +270,27 @@ func (w *ManualWizard) advanceStep() {
 		}
 	}
 
+	w.nextStep()
+}
+
+func (w *ManualWizard) nextStep() {
 	w.step++
 	w.cursorIdx = 0
+
+	for w.step < w.totalSteps-1 {
+		skipped := false
+		if w.step == 3 && w.modelSource != "custom" {
+			w.step++
+			skipped = true
+		}
+		if w.step == 4 && w.llamaSource != "custom" {
+			w.step++
+			skipped = true
+		}
+		if !skipped {
+			break
+		}
+	}
 }
 
 func (w *ManualWizard) saveConfig() {
@@ -241,7 +304,15 @@ func (w *ManualWizard) saveConfig() {
 	if w.mmprojPath != "" {
 		w.cfg.MMProjPathOverride = w.mmprojPath
 	}
-	if w.llamaServerPath != "" {
+	switch w.llamaSource {
+	case "download":
+		w.cfg.LlamaServerMode = "auto"
+		w.cfg.LlamaServerPath = ""
+	case "system":
+		w.cfg.LlamaServerMode = ""
+		w.cfg.LlamaServerPath = w.llamaServerPath
+	case "custom":
+		w.cfg.LlamaServerMode = "custom"
 		w.cfg.LlamaServerPath = w.llamaServerPath
 	}
 }
@@ -263,9 +334,21 @@ func (w *ManualWizard) View() string {
 	case 2:
 		s.WriteString(w.viewLlamaSource())
 	case 3:
-		s.WriteString(w.viewCustomPathInput())
+		if w.modelSource == "custom" {
+			s.WriteString(w.viewCustomPathInput())
+		} else {
+			s.WriteString(w.viewSaveConfirm())
+		}
 	case 4:
-		s.WriteString(w.viewLlamaPathInput())
+		if w.llamaSource == "custom" {
+			s.WriteString(w.viewLlamaPathInput())
+		} else {
+			s.WriteString(w.viewSaveConfirm())
+		}
+	default:
+		if w.step >= w.totalSteps-1 {
+			s.WriteString(w.viewSaveConfirm())
+		}
 	}
 
 	s.WriteString("\n\n")
@@ -313,6 +396,7 @@ func (w *ManualWizard) viewModelSource() string {
 	}{
 		{"Download new", "Download a model from Hugging Face"},
 		{"LM Studio", "Use models already downloaded by LM Studio"},
+		{"Ollama", "Use models from Ollama"},
 		{"Custom path", "Specify path to an existing .gguf file"},
 	}
 
@@ -353,11 +437,19 @@ func (w *ManualWizard) viewModelSelection() string {
 		return s.String()
 	}
 
-	s.WriteString("Select a model from LM Studio:\n\n")
+	if w.modelSource == "ollama" {
+		s.WriteString("Select a vision model from Ollama:\n\n")
+	} else {
+		s.WriteString("Select a vision model from LM Studio:\n\n")
+	}
 
 	w.stepCount = len(w.lmModels)
 	if w.stepCount == 0 {
-		s.WriteString(ErrorStyle.Render("No GGUF models found in ~/.lmstudio/models/"))
+		if w.modelSource == "ollama" {
+			s.WriteString(ErrorStyle.Render("No vision models found in Ollama"))
+		} else {
+			s.WriteString(ErrorStyle.Render("No vision GGUF models found in ~/.lmstudio/models/"))
+		}
 		s.WriteString(fmt.Sprintf("\n\n  %s Press Enter to go back.\n", ArrowStyle))
 		w.stepCount = 1
 		return s.String()
@@ -366,22 +458,14 @@ func (w *ManualWizard) viewModelSelection() string {
 	for i, m := range w.lmModels {
 		bullet := "  ○"
 		name := m.Name
-		vision := ""
+		size := download.FormatBytes(m.Size)
 
 		if i == w.cursorIdx {
 			bullet = DimStyle.Render(" ●")
 			name = SelectedStyle.Render(name)
 		}
 
-		if m.HasMMProj {
-			vision = " " + CheckMark.String() + " vision"
-		} else {
-			vision = " " + CrossMark.String() + " no vision"
-		}
-
-		size := download.FormatBytes(m.Size)
-
-		s.WriteString(fmt.Sprintf("%s %s  %s%s\n", bullet, name, DimStyle.Render(size), vision))
+		s.WriteString(fmt.Sprintf("%s %s  %s  %s vision\n", bullet, name, DimStyle.Render(size), CheckMark))
 	}
 
 	return s.String()
@@ -464,6 +548,38 @@ func (w *ManualWizard) viewLlamaPathInput() string {
 	}
 
 	return s.String()
+}
+
+func (w *ManualWizard) viewSaveConfirm() string {
+	var s strings.Builder
+	s.WriteString("Configuration Summary\n\n")
+
+	sourceLabel := w.modelSource
+	if sourceLabel == "lmstudio" {
+		sourceLabel = "LM Studio"
+	}
+	content := fmt.Sprintf("Model source:  %s\nModel:         %s\nMMProj:        %s\nllama-server:  %s",
+		HighlightStyle.Render(sourceLabel),
+		HighlightStyle.Render(shortPath(w.modelPath, 50)),
+		HighlightStyle.Render(shortPath(w.mmprojPath, 50)),
+		HighlightStyle.Render(w.llamaSource),
+	)
+	s.WriteString(Box("Settings", content))
+	s.WriteString("\n")
+	s.WriteString(fmt.Sprintf("  %s Press Enter to save and exit.\n", ArrowStyle))
+
+	w.stepCount = 1
+	return s.String()
+}
+
+func shortPath(path string, max int) string {
+	if path == "" {
+		return "auto-download"
+	}
+	if len(path) <= max {
+		return path
+	}
+	return "..." + path[len(path)-max:]
 }
 
 func (w *ManualWizard) viewComplete() string {
