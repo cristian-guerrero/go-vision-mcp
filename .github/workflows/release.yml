@@ -1,0 +1,126 @@
+name: build
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Lint
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./internal/...
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            ext: ""
+          - os: linux
+            arch: arm64
+            ext: ""
+          - os: darwin
+            arch: amd64
+            ext: ""
+          - os: darwin
+            arch: arm64
+            ext: ""
+          - os: windows
+            arch: amd64
+            ext: .exe
+          - os: windows
+            arch: arm64
+            ext: .exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build -o "vision-mcp-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}" -ldflags="-X main.version=${{ github.ref_name }}" .
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vision-mcp-${{ matrix.os }}-${{ matrix.arch }}
+          path: vision-mcp-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          mkdir -p release
+          for dir in artifacts/*/; do
+            name=$(basename "$dir")
+            file=$(find "$dir" -type f)
+            base=$(basename "$file")
+            # Create sha256 checksum
+            sha256sum "$file" | awk '{print $1}' > "release/$base.sha256"
+            cp "$file" "release/"
+          done
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.ref_name }}
+          body: |
+            ## Vision MCP ${{ github.ref_name }}
+
+            ### Platforms
+            | File | SHA256 |
+            |------|--------|
+            $(for f in release/*.sha256; do
+              name=$(basename "$f" .sha256)
+              hash=$(cat "$f")
+              echo "| \`$name\` | \`$hash\` |"
+            done)
+
+            ### Install
+            Download the binary for your platform and run:
+            ```bash
+            ./vision-mcp --configure
+            ```
+          files: release/*
+          draft: false
+          prerelease: false

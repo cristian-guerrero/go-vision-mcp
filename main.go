@@ -31,7 +31,7 @@ import (
 	"github.com/vision-mcp/internal/setup"
 )
 
-const version = "1.0.0"
+var version = "1.0.0"
 
 func main() {
 	runConfigure := flag.Bool("configure", false, "Open interactive TUI wizard")
@@ -43,6 +43,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "Show version")
 	freeMemory := flag.Bool("free", false, "Free GPU memory by unloading the model")
 	manualConfig := flag.Bool("manual", false, "Configure with existing models and llama-server")
+	mcpSetup := flag.Bool("mcp-setup", false, "Auto-configure MCP for installed agents (Kilo Code, OpenCode, PI Agent)")
 	flag.Parse()
 
 	if *showVersion {
@@ -99,6 +100,11 @@ func main() {
 
 	if *manualConfig {
 		runManualWizard()
+		return
+	}
+
+	if *mcpSetup {
+		runMCPSetup()
 		return
 	}
 
@@ -194,6 +200,7 @@ var welcomeOptions = []string{
 	"Quick setup (auto-detect + download)",
 	"Guided wizard (TUI step by step)",
 	"Manual config (use existing models)",
+	"MCP setup (configure agents)",
 	"Show status and exit",
 	"Exit",
 }
@@ -219,7 +226,7 @@ func (m welcomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.done = true
 			return m, tea.Quit
 
-		case "1", "2", "3", "4", "5":
+		case "1", "2", "3", "4", "5", "6":
 			m.choice = int(msg.String()[0] - '0')
 			m.done = true
 			return m, tea.Quit
@@ -294,6 +301,8 @@ func showWelcomeMenu() {
 	case 3:
 		runManualWizard()
 	case 4:
+		runMCPSetup()
+	case 5:
 		displayStatus()
 		fmt.Println()
 		fmt.Println("Run 'vision-mcp --configure' to configure, or 'vision-mcp' to start.")
@@ -330,6 +339,8 @@ func quickSetup() {
 	fmt.Printf("Config saved to %s\n", config.ConfigPath())
 	fmt.Printf("Backend: %s, Quantization: %s\n", cfg.LlamaBackend, cfg.Quantization)
 	fmt.Println("Run 'vision-mcp' to start (models will download automatically).")
+
+	promptMCPSetup()
 }
 
 func runWizardCmd() {
@@ -354,6 +365,8 @@ func runWizardCmd() {
 		}
 
 		fmt.Printf("Run 'vision-mcp' to start the server.\n")
+
+		promptMCPSetup()
 	}
 }
 
@@ -379,6 +392,126 @@ func runManualWizard() {
 		}
 
 		fmt.Printf("Run 'vision-mcp' to start the server.\n")
+
+		promptMCPSetup()
+	}
+}
+
+func runMCPSetup() {
+	exe, err := os.Executable()
+	if err != nil {
+		log.Fatalf("Error finding executable: %v", err)
+	}
+
+	agents := discover.DetectAgents(exe)
+
+	if len(agents) == 0 {
+		fmt.Println("No supported agents found (Kilo Code, OpenCode, PI Agent).")
+		fmt.Println("Install an agent first, then run 'vision-mcp --mcp-setup'.")
+		return
+	}
+
+	selected, err := setup.RunAgentSetup(agents)
+	if err != nil {
+		log.Fatalf("Agent setup error: %v", err)
+	}
+
+	if len(selected) == 0 {
+		fmt.Println("MCP setup cancelled.")
+		return
+	}
+
+	fmt.Println()
+
+	for _, a := range selected {
+		if a.Type == discover.AgentPi {
+			piAgentDir := filepath.Join(homeDir(), ".pi", "agent", "settings.json")
+			if data, err := os.ReadFile(piAgentDir); err == nil {
+				if !strings.Contains(string(data), "pi-mcp-adapter") {
+					fmt.Printf("%s requires pi-mcp-adapter.\n", a.Name)
+					fmt.Print("Install pi-mcp-adapter now? [Y/n]: ")
+					var input string
+					fmt.Scanln(&input)
+					input = strings.TrimSpace(strings.ToLower(input))
+					if input == "" || input == "y" || input == "yes" {
+						fmt.Println("Installing pi-mcp-adapter...")
+						if err := discover.InstallPiMCPAdapter(); err != nil {
+							log.Printf("Warning: install failed: %v", err)
+							fmt.Println("Install manually: pi install npm:pi-mcp-adapter")
+						}
+					}
+				}
+			}
+		}
+
+		fmt.Printf("Configuring %s...\n", a.Name)
+		if err := discover.ConfigureAgentMCP(a, exe); err != nil {
+			log.Printf("Warning: failed to configure %s: %v", a.Name, err)
+			fmt.Printf("  ✗ %s failed: %v\n", a.Name, err)
+			continue
+		}
+		fmt.Printf("  ✓ %s configured!\n", a.Name)
+	}
+
+	if len(selected) > 0 {
+		fmt.Println("\nMCP setup complete! Restart your agent to apply changes.")
+	}
+}
+
+func homeDir() string {
+	home, _ := os.UserHomeDir()
+	return home
+}
+
+func promptMCPSetup() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+
+	agents := discover.DetectAgents(exe)
+	if len(agents) == 0 {
+		return
+	}
+
+	selected, err := setup.RunAgentSetup(agents)
+	if err != nil || len(selected) == 0 {
+		return
+	}
+
+	fmt.Println()
+	for _, a := range selected {
+		if a.Type == discover.AgentPi {
+			piSettings := filepath.Join(homeDir(), ".pi", "agent", "settings.json")
+			if data, err := os.ReadFile(piSettings); err == nil {
+				if !strings.Contains(string(data), "pi-mcp-adapter") {
+					fmt.Printf("%s requires pi-mcp-adapter.\n", a.Name)
+					fmt.Print("Install pi-mcp-adapter now? [Y/n]: ")
+					var piInput string
+					fmt.Scanln(&piInput)
+					piInput = strings.TrimSpace(strings.ToLower(piInput))
+					if piInput == "" || piInput == "y" || piInput == "yes" {
+						fmt.Println("Installing pi-mcp-adapter...")
+						if err := discover.InstallPiMCPAdapter(); err != nil {
+							log.Printf("Warning: install failed: %v", err)
+							fmt.Println("Install manually: pi install npm:pi-mcp-adapter")
+						}
+					}
+				}
+			}
+		}
+
+		fmt.Printf("Configuring %s...\n", a.Name)
+		if err := discover.ConfigureAgentMCP(a, exe); err != nil {
+			log.Printf("Warning: failed to configure %s: %v", a.Name, err)
+			fmt.Printf("  ✗ %s failed: %v\n", a.Name, err)
+			continue
+		}
+		fmt.Printf("  ✓ %s configured!\n", a.Name)
+	}
+
+	if len(selected) > 0 {
+		fmt.Println("\nMCP setup complete! Restart your agent to apply changes.")
 	}
 }
 
@@ -411,6 +544,8 @@ func runInstallCmd() {
 	fmt.Printf("Config saved to %s\n", config.ConfigPath())
 	fmt.Printf("Models will download on first server start.\n")
 	fmt.Printf("Run 'vision-mcp' to start.\n")
+
+	promptMCPSetup()
 }
 
 func runUninstallCmd() {
@@ -517,6 +652,9 @@ func runServer() {
 
 			if cfg.LlamaBackend == "" || cfg.LlamaBackend == "cuda" && !hw.GPU.Present {
 				cfg.LlamaBackend = hardware.RecommendBackend(hw)
+			}
+			if cfg.LlamaBackend == "cpu" {
+				cfg.NGL = 0
 			}
 			cfg.Save()
 		}

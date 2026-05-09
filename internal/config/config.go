@@ -38,7 +38,7 @@ func DefaultConfig() Config {
 		ModelsDir:      DefaultModelsDir(),
 		Port:           8001,
 		NCtx:           8192,
-		NGL:            99,
+		NGL:            999,
 		FlashAttn:      true,
 		AutoDownload:   true,
 		DownloadMirror: "https://github.com/ggml-org/llama.cpp/releases",

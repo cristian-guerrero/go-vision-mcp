@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/vision-mcp/internal/config"
+	"github.com/vision-mcp/internal/discover"
 	"github.com/vision-mcp/internal/hardware"
 )
 
@@ -39,7 +40,7 @@ func NewWizard() *Wizard {
 		hw:          hw,
 		cfg:         &cfg,
 		step:        0,
-		totalSteps:  6,
+		totalSteps:  5,
 		stepCount:   1,
 		backend:     cfg.LlamaBackend,
 		quant:       cfg.Quantization,
@@ -148,8 +149,6 @@ func (w *Wizard) View() string {
 	case 3:
 		s.WriteString(w.viewInstallPath())
 	case 4:
-		s.WriteString(w.viewDownload())
-	case 5:
 		s.WriteString(w.viewSummary())
 	}
 
@@ -167,8 +166,8 @@ func (w *Wizard) footer() string {
 	switch w.step {
 	case 0:
 		return "[Enter] continue  [q] quit"
-	case 5:
-		return "[Enter] exit  [q] quit"
+	case 4:
+		return "[Enter] save and exit  [q] quit"
 	default:
 		return "[↑/↓] navigate  [Enter] confirm  [←/esc] back  [q] quit"
 	}
@@ -185,8 +184,6 @@ func (w *Wizard) stepTitle() string {
 	case 3:
 		return "Installation Path"
 	case 4:
-		return "Download & Install"
-	case 5:
 		return "Summary"
 	}
 	return ""
@@ -330,24 +327,6 @@ func (w *Wizard) viewInstallPath() string {
 	return s.String()
 }
 
-func (w *Wizard) viewDownload() string {
-	var s strings.Builder
-	s.WriteString("Ready to configure Vision MCP\n\n")
-
-	s.WriteString(BoxStyle.Render("Preview",
-		fmt.Sprintf("Backend:      %s\nQuantization: %s\nInstall dir:  %s\n",
-			HighlightStyle.Render(w.backend),
-			HighlightStyle.Render(w.quant),
-			InfoStyle.Render(w.installDir),
-		),
-	))
-
-	s.WriteString(fmt.Sprintf("\n  Press Enter to continue to summary.\n"))
-	s.WriteString(fmt.Sprintf("  Models will download on first server start.\n"))
-
-	return s.String()
-}
-
 func (w *Wizard) viewSummary() string {
 	w.cfg.Quantization = w.quant
 	w.cfg.LlamaBackend = w.backend
@@ -364,7 +343,28 @@ func (w *Wizard) viewSummary() string {
 		),
 	))
 
-	s.WriteString(fmt.Sprintf("\n  Press Enter to save and exit.\n"))
+	modelSize := ""
+	for _, q := range hardware.AvailableQuantizations() {
+		if q.Name == w.quant {
+			modelSize = q.Size
+			break
+		}
+	}
+
+	s.WriteString(fmt.Sprintf("\n  %s First run will download:\n", ArrowStyle))
+	if modelSize != "" {
+		s.WriteString(fmt.Sprintf("    - Model (~%s): %s\n", modelSize, HighlightStyle.Render(config.DefaultConfig().RepoID)))
+	} else {
+		s.WriteString(fmt.Sprintf("    - Model: %s\n", HighlightStyle.Render(config.DefaultConfig().RepoID)))
+	}
+
+	if _, err := discover.FindSystemLlamaServer(); err != nil {
+		s.WriteString(fmt.Sprintf("    - llama-server (~300 MB)\n"))
+	} else {
+		s.WriteString(fmt.Sprintf("    - llama-server: found in system\n"))
+	}
+
+	s.WriteString(fmt.Sprintf("\n  %s Press Enter to save config and exit.\n", ArrowStyle))
 
 	return s.String()
 }
