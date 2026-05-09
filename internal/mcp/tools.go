@@ -55,59 +55,52 @@ func (h *ToolHandler) waitReady(ctx context.Context) error {
 func (h *ToolHandler) RegisterTools(s *server.MCPServer) {
 	s.AddTool(analyzeImageTool(), h.handleAnalyzeImage)
 	s.AddTool(describeImageTool(), h.handleDescribeImage)
-	s.AddTool(getClipboardImageTool(), h.handleGetClipboardImage)
 	s.AddTool(describeClipboardTool(), h.handleDescribeClipboard)
 	s.AddTool(analyzeClipboardTool(), h.handleAnalyzeClipboard)
 }
 
 func analyzeImageTool() mcp.Tool {
 	return mcp.NewTool("analyze_image",
-		mcp.WithDescription("Analyze an image with a custom prompt using the local vision model."),
+		mcp.WithDescription("Analyze any image with a custom question or instruction using the local vision model. Accepts a URL, local file path, or base64 data URI."),
 		mcp.WithString("prompt",
 			mcp.Required(),
 			mcp.Description("Question or instruction about the image"),
 		),
 		mcp.WithString("image",
 			mcp.Required(),
-			mcp.Description("URL (http/https), local file path, or base64 data URI"),
+			mcp.Description("URL (http/https), local file path, or base64 data URI of the image"),
 		),
 	)
 }
 
 func describeImageTool() mcp.Tool {
 	return mcp.NewTool("describe_image",
-		mcp.WithDescription("Get a visual description of an image."),
+		mcp.WithDescription("Get a natural-language description of an image's contents, objects, text, colors, and layout. Accepts a URL, local file path, or base64 data URI."),
 		mcp.WithString("image",
 			mcp.Required(),
-			mcp.Description("URL, file path, or data URI"),
+			mcp.Description("URL (http/https), local file path, or base64 data URI of the image"),
 		),
 		mcp.WithString("detail",
-			mcp.Description("Level of detail: brief or detailed"),
+			mcp.Description("Level of detail: brief or detailed (default: detailed)"),
 		),
-	)
-}
-
-func getClipboardImageTool() mcp.Tool {
-	return mcp.NewTool("get_clipboard_image",
-		mcp.WithDescription("Get the current image from the clipboard as a data URI. Use this when the user says 'the image in the clipboard' or pastes an image."),
 	)
 }
 
 func describeClipboardTool() mcp.Tool {
 	return mcp.NewTool("describe_clipboard",
-		mcp.WithDescription("Describe the image currently in the clipboard."),
+		mcp.WithDescription("Describe the image currently in your clipboard without needing to provide a file path or URL. Reads the image directly from the system clipboard (Windows only)."),
 		mcp.WithString("detail",
-			mcp.Description("Level of detail: brief or detailed"),
+			mcp.Description("Level of detail: brief or detailed (default: detailed)"),
 		),
 	)
 }
 
 func analyzeClipboardTool() mcp.Tool {
 	return mcp.NewTool("analyze_clipboard",
-		mcp.WithDescription("Analyze the image currently in the clipboard with a custom prompt."),
+		mcp.WithDescription("Analyze the image in your clipboard with a custom question or instruction, no file path needed. Reads the image directly from the system clipboard (Windows only)."),
 		mcp.WithString("prompt",
 			mcp.Required(),
-			mcp.Description("Question or instruction about the image"),
+			mcp.Description("Question or instruction about the image in the clipboard"),
 		),
 	)
 }
@@ -176,19 +169,6 @@ exit 0
 
 	b64 := base64.StdEncoding.EncodeToString(data)
 	return fmt.Sprintf("data:image/png;base64,%s", b64), nil
-}
-
-func (h *ToolHandler) handleGetClipboardImage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := h.waitReady(ctx); err != nil {
-		return mcp.NewToolResultError("llama-server not ready yet"), nil
-	}
-
-	dataURI, err := clipboardImageDataURI()
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Clipboard error: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(dataURI), nil
 }
 
 func (h *ToolHandler) handleDescribeClipboard(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

@@ -5,7 +5,7 @@ A Go-based MCP (Model Context Protocol) server that enables vision analysis for 
 ## Features
 
 - **Two MCP tools** — `analyze_image` (custom prompt) and `describe_image` (brief/detailed)
-- **Clipboard tools** — `get_clipboard_image` and `describe_clipboard` (Windows)
+- **Clipboard tools** — `describe_clipboard` and `analyze_clipboard` (Windows)
 - **Auto-download** — downloads models from HuggingFace and llama-server binaries
 - **Hardware-aware** — auto-detects GPU (CUDA/Metal/Vulkan) and recommends optimal quantization
 - **Automatic resume** — interrupted downloads resume from where they left off
@@ -90,7 +90,7 @@ Configuration is stored at `~/.go-vision-mcp/config.json` (Windows: `%USERPROFIL
 | `describe_image` | `image` (required), `detail` (optional) | Describe an image (brief/detailed) |
 | `analyze_clipboard` | `prompt` (required) | Analyze the image in the clipboard with a custom prompt (Windows) |
 | `describe_clipboard` | `detail` (optional) | Describe the image in the clipboard (Windows) |
-| `get_clipboard_image` | — | Get image from clipboard as data URI (Windows) |
+
 
 ### Image References
 

@@ -58,7 +58,7 @@ Tools block on `waitReady()` until llama-server responds. Multiple MCP clients s
 |------|--------|-------------|
 | `analyze_image` | prompt (required), image (required) | Analyze an image with custom prompt |
 | `describe_image` | image (required), detail (optional) | Describe an image |
-| `get_clipboard_image` | - | Get image from Windows clipboard as data URI |
+
 | `describe_clipboard` | detail (optional) | Describe the image in the clipboard |
 
 All tools wait for llama-server to be ready before processing. Clipboard tools use PowerShell `System.Windows.Forms.Clipboard` on Windows, trying GetImage → GetFileDropList → GetData("Bitmap").
