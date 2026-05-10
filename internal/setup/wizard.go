@@ -2,6 +2,7 @@ package setup
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -99,7 +100,7 @@ func (w *Wizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if w.step == w.totalSteps-1 {
 				w.cfg.Quantization = w.quant
 				w.cfg.LlamaBackend = w.backend
-				w.cfg.ModelsDir = w.downloadDir + "/models"
+				w.cfg.ModelsDir = filepath.Join(w.downloadDir, "models")
 				w.done = true
 				return w, tea.Quit
 			}
@@ -332,7 +333,7 @@ func (w *Wizard) viewInstallPath() string {
 func (w *Wizard) viewSummary() string {
 	w.cfg.Quantization = w.quant
 	w.cfg.LlamaBackend = w.backend
-	w.cfg.ModelsDir = w.downloadDir + "/models"
+	w.cfg.ModelsDir = filepath.Join(w.downloadDir, "models")
 
 	var s strings.Builder
 	s.WriteString("Configuration Summary\n\n")

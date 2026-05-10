@@ -38,7 +38,16 @@ func fileToDataURI(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read image file: %w", err)
 	}
+
 	mime := mimeType(path)
+	if mime == "image/webp" {
+		pngData, err := DecodeWebPToPNG(data)
+		if err != nil {
+			return "", fmt.Errorf("convert webp to png: %w", err)
+		}
+		return encodeDataURI("image/png", pngData), nil
+	}
+
 	return encodeDataURI(mime, data), nil
 }
 

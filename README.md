@@ -66,7 +66,7 @@ vision-mcp.exe --configure
 
 ## Configuration
 
-Configuration is stored at `~/.go-vision-mcp/config.json` (Windows: `%USERPROFILE%\.go-vision-mcp\config.json`).
+Configuration is stored at `~/.go-mcp/vision/config.json` (Windows: `%USERPROFILE%\.go-mcp\vision\config.json`).
 
 ### Fields
 
@@ -77,7 +77,7 @@ Configuration is stored at `~/.go-vision-mcp/config.json` (Windows: `%USERPROFIL
 | `mmproj` | `mmproj-F16.gguf` | Multimodal projector filename in the repo |
 | `llama_backend` | `cuda` | Compute backend: `cuda`, `cpu`, `vulkan`, `metal` |
 | `llama_bin` | `llama-server.exe` | llama-server binary name |
-| `models_dir` | `~/.go-vision-mcp/models` | Directory for downloaded models |
+| `models_dir` | `~/.go-mcp/vision/models` | Directory for downloaded models |
 | `port` | `8001` | Port for llama-server |
 | `n_ctx` | `8192` | Context size (tokens) |
 | `ngl` | `999` | GPU layers (-ngl). 0 = CPU only |
@@ -230,7 +230,7 @@ The server will automatically download the new model files on next start. Make s
 
 | Problem | Solution |
 |---------|----------|
-| "llama-server not found" | Run without flags — it auto-downloads. Or place llama-server.exe in PATH or `~/.go-vision-mcp/` |
+| "llama-server not found" | Run without flags — it auto-downloads. Or place llama-server.exe in PATH or `~/.go-mcp/vision/` |
 | "llama-server health check timeout" | Check that the model file exists at the path shown in `--status`. Try `--free` and restart. |
 | "CUDA error" | Ensure NVIDIA drivers are installed. Run `nvidia-smi` to verify. |
 | "Out of memory" | Use a lower quantization (`Q3_K_M` or `Q2_K`) in config.json |

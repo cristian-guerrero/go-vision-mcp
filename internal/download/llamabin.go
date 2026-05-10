@@ -123,7 +123,7 @@ func llamaServerDir(destDir string) string {
 
 func LlamaServerDir() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".go-vision-mcp", "llama-server")
+	return filepath.Join(home, ".go-mcp", "vision", "llama-server")
 }
 
 func EnsureLlamaBinary(backend, destDir string, progress ProgressFunc) (string, error) {

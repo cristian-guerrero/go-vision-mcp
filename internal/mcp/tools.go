@@ -110,46 +110,46 @@ func (h *ToolHandler) RegisterTools(s *server.MCPServer) {
 
 func analyzeImageTool() mcp.Tool {
 	return mcp.NewTool("analyze_image",
-		mcp.WithDescription("Analyze any image with a custom question or instruction using the local vision model. Accepts a URL, local file path, or base64 data URI."),
+		mcp.WithDescription("Ask a custom question about an image (identify objects, read text, count items, compare elements, etc). Provide an image via URL, local file path, or base64 data URI."),
 		mcp.WithString("prompt",
 			mcp.Required(),
-			mcp.Description("Question or instruction about the image"),
+			mcp.Description("What to ask about the image. Be specific (e.g. 'What objects are in this image?', 'Read all text visible', 'How many people?', 'Describe the colors')."),
 		),
 		mcp.WithString("image",
 			mcp.Required(),
-			mcp.Description("URL (http/https), local file path, or base64 data URI of the image"),
+			mcp.Description("The image to analyze: URL (http/https), absolute local file path, or data:image/...;base64,... URI"),
 		),
 	)
 }
 
 func describeImageTool() mcp.Tool {
 	return mcp.NewTool("describe_image",
-		mcp.WithDescription("Get a natural-language description of an image's contents, objects, text, colors, and layout. Accepts a URL, local file path, or base64 data URI."),
+		mcp.WithDescription("Get a full natural-language description of what an image shows: objects, people, text, colors, layout, and scene. Use this when you just want to know what's in the image, not ask a specific question. Provide the image via URL, local file path, or base64 data URI."),
 		mcp.WithString("image",
 			mcp.Required(),
-			mcp.Description("URL (http/https), local file path, or base64 data URI of the image"),
+			mcp.Description("The image to describe: URL (http/https), absolute local file path, or data:image/...;base64,... URI"),
 		),
 		mcp.WithString("detail",
-			mcp.Description("Level of detail: brief or detailed (default: detailed)"),
+			mcp.Description("Level of detail: 'brief' (1-2 sentences) or 'detailed' (full description). Defaults to detailed."),
 		),
 	)
 }
 
 func describeClipboardTool() mcp.Tool {
 	return mcp.NewTool("describe_clipboard",
-		mcp.WithDescription("Describe the image currently in your clipboard without needing to provide a file path or URL. Reads the image directly from the system clipboard (Windows only)."),
+		mcp.WithDescription("Describe the image currently in your system clipboard. No image parameter needed — it reads the clipboard automatically. Use this when the user asks about an image they just copied."),
 		mcp.WithString("detail",
-			mcp.Description("Level of detail: brief or detailed (default: detailed)"),
+			mcp.Description("Level of detail: 'brief' (1-2 sentences) or 'detailed' (full description). Defaults to detailed."),
 		),
 	)
 }
 
 func analyzeClipboardTool() mcp.Tool {
 	return mcp.NewTool("analyze_clipboard",
-		mcp.WithDescription("Analyze the image in your clipboard with a custom question or instruction, no file path needed. Reads the image directly from the system clipboard (Windows only)."),
+		mcp.WithDescription("Ask a custom question about the image currently in your system clipboard. No image parameter needed — it reads the clipboard automatically. Use this when the user asks a specific question about an image they just copied (e.g. 'what model is this?', 'read the text')."),
 		mcp.WithString("prompt",
 			mcp.Required(),
-			mcp.Description("Question or instruction about the image in the clipboard"),
+			mcp.Description("What to ask about the clipboard image. Be specific and direct (e.g. 'List all car models in this image', 'What does the sign say?', 'Describe the person')."),
 		),
 	)
 }

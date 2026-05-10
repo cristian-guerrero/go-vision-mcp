@@ -56,7 +56,7 @@ func DefaultConfig() Config {
 
 func InstallDir() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".go-vision-mcp")
+	return filepath.Join(home, ".go-mcp", "vision")
 }
 
 func ConfigPath() string {

@@ -63,7 +63,7 @@ func createLauncherSH(installDir string) error {
 
 func InstallDir() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".go-vision-mcp")
+	return filepath.Join(home, ".go-mcp", "vision")
 }
 
 func IsInstalled() bool {
