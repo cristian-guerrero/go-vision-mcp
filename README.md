@@ -4,7 +4,8 @@ A Go-based MCP (Model Context Protocol) server that enables vision analysis for 
 
 ## Features
 
-- **Four MCP tools** — `analyze_image`, `describe_image`, `analyze_clipboard`, `describe_clipboard` (Windows / Linux with X11 or Wayland)
+- **Nine MCP tools** — image analysis from URLs, local files, clipboard, and clipboard history (Windows / Linux with X11 or Wayland)
+- **Clipboard history monitor** — optionally polls clipboard for images, keeps a configurable history for multi-image comparison (e.g. "the first image is the before, the third is the after")
 - **Lazy loading** — model downloads + llama-server starts only on first tool call, saves bandwidth/VRAM when idle
 - **Auto-download** — downloads models from HuggingFace and llama-server binaries on demand
 - **Hardware-aware** — auto-detects GPU (CUDA/Metal/Vulkan) and recommends optimal quantization
@@ -88,6 +89,9 @@ Configuration is stored at `~/.go-mcp/vision/config.json` (Windows: `%USERPROFIL
 | `kv_cache_type_k` | `q4_0` | KV cache key quantization type (`-ctk`) |
 | `kv_cache_type_v` | `q4_0` | KV cache value quantization type (`-ctv`) |
 | `idle_timeout` | `5` | Minutes of inactivity before unloading model (0 = disabled) |
+| `clipboard_monitor_enabled` | `false` | Enable clipboard history monitor for multi-image analysis |
+| `clipboard_history_limit` | `5` | Max cached images in clipboard history (1-20) |
+| `clipboard_cache_dir` | `""` | Custom cache directory for clipboard history (default: `~/.go-mcp/vision/clipboard-cache`) |
 | `model_path` | `""` | Override: exact path to model GGUF file |
 | `mmproj_path` | `""` | Override: exact path to mmproj file |
 | `llama_server_path` | `""` | Override: exact path to llama-server binary |
@@ -104,13 +108,49 @@ When `model_path`, `mmproj_path`, or `llama_server_path` are set to a non-empty 
 
 ## Available Tools
 
+### Image Analysis (files, URLs, data URIs)
+
 | Tool | Parameters | Description |
 |------|-----------|-------------|
 | `analyze_image` | `prompt` (required), `image` (required) | Analyze an image with a custom prompt |
 | `describe_image` | `image` (required), `detail` (optional) | Describe an image (brief/detailed) |
-| `analyze_clipboard` | `prompt` (required) | Analyze the image in the clipboard with a custom prompt (Windows) |
-| `describe_clipboard` | `detail` (optional) | Describe the image in the clipboard (Windows) |
 
+### Current Clipboard
+
+| Tool | Parameters | Description |
+|------|-----------|-------------|
+| `analyze_clipboard` | `prompt` (required) | Analyze the image currently in the clipboard |
+| `describe_clipboard` | `detail` (optional) | Describe the image currently in the clipboard |
+
+### Clipboard History (requires `clipboard_monitor_enabled: true`)
+
+The clipboard monitor runs in the background, polling the clipboard every 500ms. Each new image is detected, deduplicated by hash, and saved to a circular buffer. When the image comes from a file (copied via File Explorer), the original file path is stored — no copy is made, preserving full quality. When the image comes from a raw clipboard source (PrintScreen, browser "Copy Image"), a cached PNG is saved.
+
+History is cleared when the server stops. Cached files are deleted; original files are never touched.
+
+| Tool | Parameters | Description |
+|------|-----------|-------------|
+| `list_clipboard_history` | — | List all cached clipboard images with index, timestamp, and source path |
+| `analyze_clipboard_image` | `index` (required), `prompt` (required) | Ask a custom question about a specific cached image by index |
+| `describe_clipboard_image` | `index` (required), `detail` (optional) | Describe a specific cached image by index |
+| `analyze_clipboard_images` | `indices` (required), `prompt` (required) | Analyze multiple cached images at once (comma-separated indices, e.g. `"1,2,3"`) |
+| `clear_clipboard_history` | — | Purge all cached clipboard images |
+
+#### Multi-image example workflow
+
+```
+User copies 3 images (Ctrl+C three times)
+User: "compare the first and third images"
+
+LLM → list_clipboard_history()
+LLM  ← #1 — 14:03:15 — C:\Users\...\before.png
+        #2 — 14:04:22 — C:\Users\...\middle.png  
+        #3 — 14:05:10 — C:\Users\...\after.png
+
+LLM → analyze_clipboard_images(indices="1,3",
+         prompt="Image #1 is the BEFORE, image #2 is the AFTER. What changed?")
+LLM  ← "The before image shows an empty form. The after image shows..."
+```
 
 ### Image References
 
@@ -236,6 +276,9 @@ The server will automatically download the new model files on next start. Make s
 | "Out of memory" | Use a lower quantization (`Q3_K_M` or `Q2_K`) in config.json |
 | "Model not downloading" | Check internet connection. Files download from HuggingFace. |
 | Clipboard says "no image found" | Copy an image first (screenshot with Snipping Tool, or copy image from browser) |
+| Clipboard history shows "Clipboard monitor not enabled" | Set `clipboard_monitor_enabled: true` in config.json, or enable it during `--configure` or `--manual` setup |
+| Clipboard history empty after restart | Expected — history is cleared on server shutdown for privacy. Enable monitor and copy images again |
+| Copied file image looks lower quality | When copying from a file, the monitor prefers the original file path (no quality loss). If the image was copied from a browser or screenshot (raw clipboard), a PNG conversion is used — this may alter colors or dimensions slightly |
 | Port 8001 already in use | Run `vision-mcp --free` to kill existing llama-server |
 
 ## License
