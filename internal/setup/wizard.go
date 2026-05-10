@@ -23,6 +23,7 @@ type Wizard struct {
 	quant       string
 	installDir  string
 	downloadDir string
+	clipMonOn   bool
 
 	done      bool
 	cancelled bool
@@ -42,12 +43,13 @@ func NewWizard() *Wizard {
 		hw:          hw,
 		cfg:         &cfg,
 		step:        0,
-		totalSteps:  4,
+		totalSteps:  5,
 		stepCount:   1,
 		backend:     cfg.LlamaBackend,
 		quant:       cfg.Quantization,
 		installDir:  config.InstallDir(),
 		downloadDir: config.InstallDir(),
+		clipMonOn:   false,
 	}
 }
 
@@ -101,6 +103,7 @@ func (w *Wizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				w.cfg.Quantization = w.quant
 				w.cfg.LlamaBackend = w.backend
 				w.cfg.ModelsDir = filepath.Join(w.downloadDir, "models")
+				w.cfg.ClipboardMonitorEnabled = w.clipMonOn
 				w.done = true
 				return w, tea.Quit
 			}
@@ -116,7 +119,7 @@ func (w *Wizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (w *Wizard) hasOptions() bool {
-	return w.step == 0 || w.step == 1 || w.step == 2
+	return w.step == 0 || w.step == 1 || w.step == 2 || w.step == 3
 }
 
 func (w *Wizard) handleSelection(idx int) {
@@ -135,6 +138,8 @@ func (w *Wizard) handleSelection(idx int) {
 		if idx == 1 {
 			w.installDir = "."
 		}
+	case 3:
+		w.clipMonOn = idx == 0
 	}
 }
 
@@ -156,6 +161,8 @@ func (w *Wizard) View() string {
 	case 2:
 		s.WriteString(w.viewInstallPath())
 	case 3:
+		s.WriteString(w.viewClipboardMonitor())
+	case 4:
 		s.WriteString(w.viewSummary())
 	}
 
@@ -171,7 +178,7 @@ func (w *Wizard) View() string {
 
 func (w *Wizard) footer() string {
 	switch w.step {
-	case 3:
+	case 4:
 		return "[Enter] save and exit  [q] quit"
 	default:
 		return "[↑/↓] navigate  [Enter] confirm  [←/esc] back  [q] quit"
@@ -187,6 +194,8 @@ func (w *Wizard) stepTitle() string {
 	case 2:
 		return "Installation Path"
 	case 3:
+		return "Clipboard Monitoring"
+	case 4:
 		return "Summary"
 	}
 	return ""
@@ -330,6 +339,42 @@ func (w *Wizard) viewInstallPath() string {
 	return s.String()
 }
 
+func (w *Wizard) viewClipboardMonitor() string {
+	var s strings.Builder
+	s.WriteString("Enable Clipboard Monitoring?\n\n")
+	s.WriteString("When enabled, Vision MCP monitors your clipboard for copied images\n")
+	s.WriteString("and keeps a history (up to the configured limit). This allows you to\n")
+	s.WriteString("analyze multiple images copied in sequence, e.g.:\n\n")
+	s.WriteString(DimStyle.Render("  \"la primera imagen copiada es el antes y la segunda el después\"") + "\n\n")
+	s.WriteString("The history is stored only in memory and disk cache — it is\n")
+	s.WriteString("purged when you close the MCP server. This does NOT send data\n")
+	s.WriteString("anywhere; images stay on your machine.\n\n")
+
+	options := []struct {
+		label string
+		desc  string
+	}{
+		{"Yes", "Monitor clipboard for image copies (history limit: 5)"},
+		{"No", "Only analyze the current clipboard image"},
+	}
+
+	w.stepCount = len(options)
+
+	for i, opt := range options {
+		bullet := "  ○"
+		label := opt.label
+
+		if i == w.cursorIdx {
+			bullet = CursorStyle.String()
+			label = SelectedStyle.Render(label)
+		}
+
+		s.WriteString(fmt.Sprintf("%s %s  %s\n", bullet, label, DimStyle.Render(opt.desc)))
+	}
+
+	return s.String()
+}
+
 func (w *Wizard) viewSummary() string {
 	w.cfg.Quantization = w.quant
 	w.cfg.LlamaBackend = w.backend
@@ -338,11 +383,17 @@ func (w *Wizard) viewSummary() string {
 	var s strings.Builder
 	s.WriteString("Configuration Summary\n\n")
 
+	clipMonStatus := "Disabled"
+	if w.clipMonOn {
+		clipMonStatus = "Enabled"
+	}
+
 	s.WriteString(Box("Summary",
-		fmt.Sprintf("Backend:      %s\nQuantization: %s\nInstall dir:  %s\n",
+		fmt.Sprintf("Backend:      %s\nQuantization: %s\nInstall dir:  %s\nClipboard:    %s\n",
 			HighlightStyle.Render(w.backend),
 			HighlightStyle.Render(w.quant),
 			InfoStyle.Render(w.installDir),
+			HighlightStyle.Render(clipMonStatus),
 		),
 	))
 
@@ -379,6 +430,9 @@ func (w *Wizard) viewComplete() string {
 
 	s.WriteString(fmt.Sprintf("  %s Backend: %s\n", CheckMark, w.backend))
 	s.WriteString(fmt.Sprintf("  %s Quantization: %s\n", CheckMark, w.quant))
+	if w.clipMonOn {
+		s.WriteString(fmt.Sprintf("  %s Clipboard monitoring: Enabled\n", CheckMark))
+	}
 	s.WriteString(fmt.Sprintf("  %s Config saved to: %s\n", CheckMark, config.ConfigPath()))
 
 	s.WriteString("\n")

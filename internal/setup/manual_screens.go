@@ -27,6 +27,7 @@ type ManualWizard struct {
 	mmprojPath      string
 	llamaSource     string
 	llamaServerPath string
+	clipMonOn       bool
 
 	lmModels []discover.ModelInfo
 	input    string
@@ -58,10 +59,11 @@ func NewManualWizard() *ManualWizard {
 	return &ManualWizard{
 		cfg:         loadOrDefaultConfig(),
 		step:        0,
-		totalSteps:  5,
+		totalSteps:  6,
 		stepCount:   1,
 		modelSource: "download",
 		llamaSource: "system",
+		clipMonOn:   false,
 	}
 }
 
@@ -126,6 +128,9 @@ func (w *ManualWizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "enter":
 			if w.step >= w.totalSteps-1 {
+				if w.hasOptions() {
+					w.handleSelection(w.cursorIdx)
+				}
 				w.saveConfig()
 				w.done = true
 				return w, tea.Quit
@@ -191,6 +196,17 @@ func (w *ManualWizard) textSubmit() {
 		w.input = ""
 		w.inputErr = ""
 		w.nextStep()
+	}
+}
+
+func (w *ManualWizard) hasOptions() bool {
+	return w.step == 0 || w.step == 2 || w.step == 5
+}
+
+func (w *ManualWizard) handleSelection(idx int) {
+	switch w.step {
+	case 5:
+		w.clipMonOn = idx == 0
 	}
 }
 
@@ -315,6 +331,55 @@ func (w *ManualWizard) saveConfig() {
 		w.cfg.LlamaServerMode = "custom"
 		w.cfg.LlamaServerPath = w.llamaServerPath
 	}
+	w.cfg.ClipboardMonitorEnabled = w.clipMonOn
+}
+
+func (w *ManualWizard) viewSaveAndClipboard() string {
+	var s strings.Builder
+	s.WriteString("Configuration Summary\n\n")
+
+	sourceLabel := w.modelSource
+	if sourceLabel == "lmstudio" {
+		sourceLabel = "LM Studio"
+	}
+	content := fmt.Sprintf("Model source:  %s\nModel:         %s\nMMProj:        %s\nllama-server:  %s",
+		HighlightStyle.Render(sourceLabel),
+		HighlightStyle.Render(shortPath(w.modelPath, 50)),
+		HighlightStyle.Render(shortPath(w.mmprojPath, 50)),
+		HighlightStyle.Render(w.llamaSource),
+	)
+	s.WriteString(Box("Settings", content))
+	s.WriteString("\n\n")
+
+	s.WriteString("Clipboard Monitoring\n\n")
+	s.WriteString("Keep a history of copied images for multi-image analysis.\n")
+	s.WriteString("History is cleared when the server stops.\n\n")
+
+	options := []struct {
+		label string
+		desc  string
+	}{
+		{"Yes", "Enable clipboard history (limit: 5 images)"},
+		{"No", "Keep disabled — only analyze current clipboard image"},
+	}
+
+	w.stepCount = len(options)
+
+	for i, opt := range options {
+		bullet := "  ○"
+		label := opt.label
+
+		if i == w.cursorIdx {
+			bullet = CursorStyle.String()
+			label = SelectedStyle.Render(label)
+		}
+
+		s.WriteString(fmt.Sprintf("%s %s  %s\n", bullet, label, DimStyle.Render(opt.desc)))
+	}
+
+	s.WriteString(fmt.Sprintf("\n  %s Press Enter to save and exit.\n", ArrowStyle))
+
+	return s.String()
 }
 
 func (w *ManualWizard) View() string {
@@ -337,17 +402,19 @@ func (w *ManualWizard) View() string {
 		if w.modelSource == "custom" {
 			s.WriteString(w.viewCustomPathInput())
 		} else {
-			s.WriteString(w.viewSaveConfirm())
+			s.WriteString(w.viewSaveAndClipboard())
 		}
 	case 4:
 		if w.llamaSource == "custom" {
 			s.WriteString(w.viewLlamaPathInput())
 		} else {
-			s.WriteString(w.viewSaveConfirm())
+			s.WriteString(w.viewSaveAndClipboard())
 		}
+	case 5:
+		s.WriteString(w.viewSaveAndClipboard())
 	default:
 		if w.step >= w.totalSteps-1 {
-			s.WriteString(w.viewSaveConfirm())
+			s.WriteString(w.viewSaveAndClipboard())
 		}
 	}
 
@@ -365,6 +432,8 @@ func (w *ManualWizard) footer() string {
 	switch w.step {
 	case 3, 4:
 		return "[Enter] submit  [esc] back  [q] quit"
+	case 5:
+		return "[↑/↓] select  [Enter] save and exit  [←/esc] back  [q] quit"
 	default:
 		return "[↑/↓] navigate  [Enter] confirm  [←/esc] back  [q] quit"
 	}
@@ -382,6 +451,8 @@ func (w *ManualWizard) stepTitle() string {
 		return "Custom Model Path"
 	case 4:
 		return "llama-server Path"
+	case 5:
+		return "Clipboard Monitoring"
 	}
 	return ""
 }
@@ -599,6 +670,9 @@ func (w *ManualWizard) viewComplete() string {
 	}
 	if w.llamaServerPath != "" {
 		s.WriteString(fmt.Sprintf("  %s Server: %s\n", CheckMark, w.llamaServerPath))
+	}
+	if w.clipMonOn {
+		s.WriteString(fmt.Sprintf("  %s Clipboard monitoring: Enabled\n", CheckMark))
 	}
 
 	s.WriteString(fmt.Sprintf("\n  Config: %s\n", config.ConfigPath()))

@@ -18,6 +18,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/vision-mcp/internal/agentconfig"
+	"github.com/vision-mcp/internal/clipboard"
 	"github.com/vision-mcp/internal/config"
 	"github.com/vision-mcp/internal/discover"
 	"github.com/vision-mcp/internal/download"
@@ -591,6 +592,14 @@ func runServer() {
 	handler := mcptools.NewToolHandler("", cfg.CustomPrompt)
 	handler.RegisterTools(mcpServer)
 
+	var clipMon *clipboard.Monitor
+	if cfg.ClipboardMonitorEnabled {
+		clipMon = clipboard.NewMonitor(cfg)
+		clipMon.Start()
+		handler.SetClipboardMonitor(clipMon)
+		log.Printf("Clipboard monitor enabled (history limit: %d)", cfg.ClipboardHistoryLimit)
+	}
+
 	go func() {
 		hw, err := hardware.DetectHardware()
 		if err == nil {
@@ -624,6 +633,9 @@ func runServer() {
 		handler.SetStopFunc(func() {
 			cancel()
 			handler.SetLoaded(false)
+			if clipMon != nil {
+				clipMon.Stop()
+			}
 			if srv != nil {
 				srv.Stop()
 			}

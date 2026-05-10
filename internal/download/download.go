@@ -180,10 +180,10 @@ func EnsureModels(cfg *config.Config, onProgress ProgressFunc) error {
 			if err := DownloadFile(url, mmprojPath, onProgress); err != nil {
 				return fmt.Errorf("download mmproj: %w", err)
 			}
-		downloadedMMProj = true
-		if onProgress != nil {
-			onProgress(0, 0)
-		}
+			downloadedMMProj = true
+			if onProgress != nil {
+				onProgress(0, 0)
+			}
 		}
 	}
 

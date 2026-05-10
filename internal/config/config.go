@@ -11,46 +11,52 @@ import (
 )
 
 type Config struct {
-	RepoID             string `json:"repo_id"`
-	Quantization       string `json:"quantization"`
-	MMProj             string `json:"mmproj"`
-	LlamaBackend       string `json:"llama_backend"`
-	LlamaBin           string `json:"llama_bin"`
-	ModelsDir          string `json:"models_dir"`
-	Port               int    `json:"port"`
-	NCtx               int    `json:"n_ctx"`
-	NGL                int    `json:"ngl"`
-	FlashAttn          bool   `json:"flash_attn"`
-	AutoDownload       bool   `json:"auto_download"`
-	DownloadMirror     string `json:"download_mirror"`
-	CustomPrompt       string `json:"custom_prompt"`
-	ModelPathOverride  string `json:"model_path"`
-	MMProjPathOverride string `json:"mmproj_path"`
-	LlamaServerPath    string `json:"llama_server_path"`
-	LlamaServerMode    string `json:"llama_server_mode"`
-	KvCacheTypeK       string `json:"kv_cache_type_k"`
-	KvCacheTypeV       string `json:"kv_cache_type_v"`
-	IdleTimeout        int    `json:"idle_timeout"`
+	RepoID                  string `json:"repo_id"`
+	Quantization            string `json:"quantization"`
+	MMProj                  string `json:"mmproj"`
+	LlamaBackend            string `json:"llama_backend"`
+	LlamaBin                string `json:"llama_bin"`
+	ModelsDir               string `json:"models_dir"`
+	Port                    int    `json:"port"`
+	NCtx                    int    `json:"n_ctx"`
+	NGL                     int    `json:"ngl"`
+	FlashAttn               bool   `json:"flash_attn"`
+	AutoDownload            bool   `json:"auto_download"`
+	DownloadMirror          string `json:"download_mirror"`
+	CustomPrompt            string `json:"custom_prompt"`
+	ModelPathOverride       string `json:"model_path"`
+	MMProjPathOverride      string `json:"mmproj_path"`
+	LlamaServerPath         string `json:"llama_server_path"`
+	LlamaServerMode         string `json:"llama_server_mode"`
+	KvCacheTypeK            string `json:"kv_cache_type_k"`
+	KvCacheTypeV            string `json:"kv_cache_type_v"`
+	IdleTimeout             int    `json:"idle_timeout"`
+	ClipboardMonitorEnabled bool   `json:"clipboard_monitor_enabled"`
+	ClipboardHistoryLimit   int    `json:"clipboard_history_limit"`
+	ClipboardCacheDir       string `json:"clipboard_cache_dir"`
 }
 
 func DefaultConfig() Config {
 	return Config{
-		RepoID:         "unsloth/Qwen3.5-4B-GGUF",
-		Quantization:   "UD-IQ3_XXS",
-		MMProj:         "mmproj-F16.gguf",
-		LlamaBackend:   "cuda",
-		LlamaBin:       llamaBinDefault(),
-		ModelsDir:      DefaultModelsDir(),
-		Port:           8001,
-		NCtx:           8192,
-		NGL:            999,
-		FlashAttn:      true,
-		AutoDownload:   true,
-		DownloadMirror: "https://github.com/ggml-org/llama.cpp/releases",
-		CustomPrompt:   "Analyze this image and respond to: %s",
-		KvCacheTypeK:   "q4_0",
-		KvCacheTypeV:   "q4_0",
-		IdleTimeout:    5,
+		RepoID:                  "unsloth/Qwen3.5-4B-GGUF",
+		Quantization:            "UD-IQ3_XXS",
+		MMProj:                  "mmproj-F16.gguf",
+		LlamaBackend:            "cuda",
+		LlamaBin:                llamaBinDefault(),
+		ModelsDir:               DefaultModelsDir(),
+		Port:                    8001,
+		NCtx:                    8192,
+		NGL:                     999,
+		FlashAttn:               true,
+		AutoDownload:            true,
+		DownloadMirror:          "https://github.com/ggml-org/llama.cpp/releases",
+		CustomPrompt:            "Analyze this image and respond to: %s",
+		KvCacheTypeK:            "q4_0",
+		KvCacheTypeV:            "q4_0",
+		IdleTimeout:             5,
+		ClipboardMonitorEnabled: false,
+		ClipboardHistoryLimit:   5,
+		ClipboardCacheDir:       "",
 	}
 }
 
@@ -148,6 +154,13 @@ func (c *Config) MMProjPath() string {
 		}
 	}
 	return newPath
+}
+
+func (c *Config) ClipboardCacheDirPath() string {
+	if c.ClipboardCacheDir != "" {
+		return c.ClipboardCacheDir
+	}
+	return filepath.Join(InstallDir(), "clipboard-cache")
 }
 
 func modelNameFromRepo(repoID string) string {

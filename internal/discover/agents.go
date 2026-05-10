@@ -22,10 +22,10 @@ const (
 )
 
 type AgentInfo struct {
-	Type      AgentType
-	Name      string
+	Type       AgentType
+	Name       string
 	ConfigPath string
-	Installed bool
+	Installed  bool
 	Configured bool
 }
 

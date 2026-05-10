@@ -28,7 +28,7 @@ type Server struct {
 
 func New(modelPath, mmprojPath string, port, ngl, nctx int, flashAttn bool, binaryName, kvCacheTypeK, kvCacheTypeV string) *Server {
 	return &Server{
-		model: modelPath,
+		model:  modelPath,
 		mmproj: mmprojPath,
 		port:   port,
 		ngl:    ngl,
