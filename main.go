@@ -775,6 +775,8 @@ func displayStatus() {
 	fmt.Println("Tools:")
 	fmt.Println("  analyze_image(prompt, image)")
 	fmt.Println("  describe_image(image, detail)")
+	fmt.Println("  analyze_clipboard(prompt)")
+	fmt.Println("  describe_clipboard(detail)")
 }
 
 func runDownload() {

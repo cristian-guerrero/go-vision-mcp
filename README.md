@@ -4,7 +4,7 @@ A Go-based MCP (Model Context Protocol) server that enables vision analysis for 
 
 ## Features
 
-- **Four MCP tools** — `analyze_image`, `describe_image`, `analyze_clipboard`, `describe_clipboard` (Windows)
+- **Four MCP tools** — `analyze_image`, `describe_image`, `analyze_clipboard`, `describe_clipboard` (Windows / Linux with X11 or Wayland)
 - **Lazy loading** — model downloads + llama-server starts only on first tool call, saves bandwidth/VRAM when idle
 - **Auto-download** — downloads models from HuggingFace and llama-server binaries on demand
 - **Hardware-aware** — auto-detects GPU (CUDA/Metal/Vulkan) and recommends optimal quantization
@@ -17,28 +17,36 @@ A Go-based MCP (Model Context Protocol) server that enables vision analysis for 
 
 ## System Requirements
 
-| Requirement | Minimum | Recommended |
-|-------------|---------|-------------|
-| RAM | 6 GB | 16 GB |
-| VRAM (GPU) | 2 GB | 8 GB (CUDA) |
-| Disk | 5 GB free | 10 GB free |
-| Network | Required for initial model download | |
+Requirements depend on the selected model and quantization. The default model is **Qwen3.5-4B** (~4B parameters). The tool **automatically detects your hardware** and selects the optimal quantization — no manual tuning needed.
+
+### Guidance by VRAM (default model: Qwen3.5-4B)
+
+| VRAM | Recommended Quantization | Approx. Size | Quality |
+|------|------------------------|-------------|---------|
+| ≥ 12 GB | Q8_0 / Q6_K | 3.5 – 4.5 GB | Maximum |
+| ≥ 8 GB | Q5_K_M | ~3.1 GB | High |
+| ≥ 6 GB | Q4_K_M | ~2.7 GB | Balanced |
+| ≥ 4 GB | Q3_K_M / IQ4_XS | 2.1 – 2.5 GB | Economy |
+| ≥ 2 GB | UD-IQ3_XXS | ~1.8 GB | Ultra low RAM |
+
+- **RAM**: 8 GB+ recommended (4 GB minimum)
+- **Disk**: 5 GB free for model storage
+- **Network**: Required for initial model download
+- **GPU**: NVIDIA (CUDA), AMD/Intel (Vulkan), or Apple Silicon (Metal)
 
 ## Quick Start
+
+The tool automatically detects your GPU, RAM, and VRAM, then selects the best model and quantization for your system.
 
 ```bash
 # Build from source
 go build -o vision-mcp.exe .
 
-# Run the setup wizard
+# Quick setup — auto-detects hardware, downloads model, starts server
+vision-mcp.exe
+
+# Or use the interactive setup wizard
 vision-mcp.exe --configure
-
-# Or use quick setup (auto-detect + download)
-vision-mcp.exe
-# Select option 1 from the welcome menu
-
-# Start the MCP server
-vision-mcp.exe
 ```
 
 ## CLI Reference

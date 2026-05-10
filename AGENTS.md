@@ -71,7 +71,12 @@ When `idle_timeout > 0` (default: 5 minutes), a background goroutine monitors to
 
 | `describe_clipboard` | detail (optional) | Describe the image in the clipboard |
 
-All tools wait for llama-server to be ready before processing. Clipboard tools use PowerShell `System.Windows.Forms.Clipboard` on Windows, trying GetImage → GetFileDropList → GetData("Bitmap").
+All tools wait for llama-server to be ready before processing. Clipboard tools use platform-specific backends:
+
+- **Windows**: PowerShell `System.Windows.Forms.Clipboard`, trying GetImage → GetFileDropList → GetData("Bitmap")
+- **Linux/X11**: `xclip -selection clipboard -t image/png -o` (requires `xclip` package)
+- **Linux/Wayland**: `wl-paste --type image/png` (requires `wl-clipboard` package)
+- Detection uses `$WAYLAND_DISPLAY` / `$DISPLAY` environment variables
 
 ## Sidecar Architecture
 
@@ -138,7 +143,8 @@ When the MCP client disconnects (stdin closes), `ServeStdio()` returns and `hand
 - `installer/path_unix.go` — appends to `~/.bashrc` or `~/.zshrc`
 - `main_windows.go` — `showMessageBox()` via Win32 `MessageBoxW` API
 - `main_unix.go` — `showMessageBox()` stub that prints to stderr
-- `mcp/tools.go:clipboardImageDataURI()` — uses PowerShell `System.Windows.Forms.Clipboard` (Windows only)
+- `mcp/clipboard_windows.go:clipboardImageDataURIImpl()` — PowerShell `System.Windows.Forms.Clipboard` (Windows)
+- `mcp/clipboard_unix.go:clipboardImageDataURIImpl()` — `xclip` (X11) / `wl-paste` (Wayland) (Linux)
 
 ## Hardware Detection
 
