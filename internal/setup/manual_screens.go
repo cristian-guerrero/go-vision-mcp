@@ -407,7 +407,7 @@ func (w *ManualWizard) viewModelSource() string {
 		label := opt.label
 
 		if i == w.cursorIdx {
-			bullet = DimStyle.Render(" ●")
+			bullet = CursorStyle.String()
 			label = SelectedStyle.Render(label)
 		}
 
@@ -461,7 +461,7 @@ func (w *ManualWizard) viewModelSelection() string {
 		size := download.FormatBytes(m.Size)
 
 		if i == w.cursorIdx {
-			bullet = DimStyle.Render(" ●")
+			bullet = CursorStyle.String()
 			name = SelectedStyle.Render(name)
 		}
 
@@ -491,7 +491,7 @@ func (w *ManualWizard) viewLlamaSource() string {
 		label := opt.label
 
 		if i == w.cursorIdx {
-			bullet = DimStyle.Render(" ●")
+			bullet = CursorStyle.String()
 			label = SelectedStyle.Render(label)
 		}
 
@@ -513,7 +513,9 @@ func (w *ManualWizard) viewCustomPathInput() string {
 	var s strings.Builder
 	s.WriteString("Enter path to the model .gguf file:\n\n")
 
-	prompt := "  > "
+	prompt := "  "
+	prompt += TitleStyle.Render(">")
+	prompt += " "
 	if w.input != "" {
 		prompt += InfoStyle.Render(w.input)
 	} else {
@@ -523,7 +525,7 @@ func (w *ManualWizard) viewCustomPathInput() string {
 	s.WriteString(prompt)
 	s.WriteString("\n")
 	if w.inputErr != "" {
-		s.WriteString("\n" + ErrorStyle.Render(w.inputErr))
+		s.WriteString("\n" + CrossMark.String() + " " + ErrorStyle.Render(w.inputErr))
 	}
 
 	return s.String()
@@ -534,7 +536,9 @@ func (w *ManualWizard) viewLlamaPathInput() string {
 	s.WriteString("Enter path to llama-server binary:\n")
 	s.WriteString("(press Enter with empty input to use system PATH)\n\n")
 
-	prompt := "  > "
+	prompt := "  "
+	prompt += TitleStyle.Render(">")
+	prompt += " "
 	if w.input != "" {
 		prompt += InfoStyle.Render(w.input)
 	} else {
@@ -544,7 +548,7 @@ func (w *ManualWizard) viewLlamaPathInput() string {
 	s.WriteString(prompt)
 	s.WriteString("\n")
 	if w.inputErr != "" {
-		s.WriteString("\n" + ErrorStyle.Render(w.inputErr))
+		s.WriteString("\n" + CrossMark.String() + " " + ErrorStyle.Render(w.inputErr))
 	}
 
 	return s.String()

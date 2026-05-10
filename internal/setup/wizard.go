@@ -219,7 +219,7 @@ func (w *Wizard) viewHardware() string {
 	s.WriteString(fmt.Sprintf("\n  %s Recommended backend: %s\n", ArrowStyle, HighlightStyle.Render(w.cfg.LlamaBackend)))
 	s.WriteString(fmt.Sprintf("  %s Recommended quantization: %s\n", ArrowStyle, HighlightStyle.Render(w.cfg.Quantization)))
 
-	return s.String()
+	return BorderStyle.Render(s.String())
 }
 
 func (w *Wizard) viewBackend() string {
@@ -247,7 +247,7 @@ func (w *Wizard) viewBackend() string {
 		extra := ""
 
 		if i == w.cursorIdx {
-			bullet = DimStyle.Render(" ●")
+			bullet = CursorStyle.String()
 			name = SelectedStyle.Render(name)
 			if b.key == recommended {
 				extra = " " + BadgeRecommended.String()
@@ -278,7 +278,7 @@ func (w *Wizard) viewQuantization() string {
 		extra := ""
 
 		if i == w.cursorIdx {
-			bullet = DimStyle.Render(" ●")
+			bullet = CursorStyle.String()
 			name = SelectedStyle.Render(name)
 			if q.Name == rec {
 				extra = " " + BadgeRecommended.String()
@@ -319,7 +319,7 @@ func (w *Wizard) viewInstallPath() string {
 		label := opt.label
 
 		if i == w.cursorIdx {
-			bullet = DimStyle.Render(" ●")
+			bullet = CursorStyle.String()
 			label = SelectedStyle.Render(label)
 		}
 
@@ -337,7 +337,7 @@ func (w *Wizard) viewSummary() string {
 	var s strings.Builder
 	s.WriteString("Configuration Summary\n\n")
 
-	s.WriteString(BoxStyle.Render("Summary",
+	s.WriteString(Box("Summary",
 		fmt.Sprintf("Backend:      %s\nQuantization: %s\nInstall dir:  %s\n",
 			HighlightStyle.Render(w.backend),
 			HighlightStyle.Render(w.quant),

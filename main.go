@@ -15,7 +15,6 @@ import (
 	"syscall"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/vision-mcp/internal/agentconfig"
@@ -167,111 +166,15 @@ func showNonInteractiveMessage() {
 	}
 }
 
-type welcomeModel struct {
-	cursor int
-	choice int
-	done   bool
-	quit   bool
-}
-
-var welcomeOptions = []string{
-	"Quick setup (auto-detect + download)",
-	"Guided wizard (TUI step by step)",
-	"Manual config (use existing models)",
-	"MCP setup (configure agents)",
-	"Show status and exit",
-	"Exit",
-}
-
-func (m welcomeModel) Init() tea.Cmd { return nil }
-
-func (m welcomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
-			m.quit = true
-			return m, tea.Quit
-
-		case "up", "k":
-			m.cursor = (m.cursor - 1 + len(welcomeOptions)) % len(welcomeOptions)
-
-		case "down", "j":
-			m.cursor = (m.cursor + 1) % len(welcomeOptions)
-
-		case "enter":
-			m.choice = m.cursor + 1
-			m.done = true
-			return m, tea.Quit
-
-		case "1", "2", "3", "4", "5", "6":
-			m.choice = int(msg.String()[0] - '0')
-			m.done = true
-			return m, tea.Quit
-		}
-	}
-	return m, nil
-}
-
-func (m welcomeModel) View() string {
-	if m.done || m.quit {
-		return ""
-	}
-
-	const boxW = 45
-
-	var s strings.Builder
-	s.WriteString("\n")
-	s.WriteString("┌─────────────────────────────────────────────┐\n")
-
-	lines := []string{
-		"           Vision MCP - Setup",
-		"",
-		"  No configuration found.",
-		"",
-		"  What would you like to do?",
-		"",
-	}
-	for _, line := range lines {
-		padding := boxW - len(line)
-		if padding < 0 {
-			padding = 0
-		}
-		s.WriteString(fmt.Sprintf("│%s%s│\n", line, strings.Repeat(" ", padding)))
-	}
-
-	for i, opt := range welcomeOptions {
-		prefix := "     "
-		if i == m.cursor {
-			prefix = "  ▶  "
-		}
-		line := prefix + opt
-		padding := boxW - len(line)
-		if padding < 0 {
-			padding = 0
-		}
-		s.WriteString(fmt.Sprintf("│%s%s│\n", line, strings.Repeat(" ", padding)))
-	}
-
-	s.WriteString(fmt.Sprintf("│%s│\n", strings.Repeat(" ", boxW)))
-	s.WriteString(fmt.Sprintf("│  [↑/↓] navigate  [Enter] select  [q] quit   │\n"))
-	s.WriteString("└─────────────────────────────────────────────┘\n")
-	return s.String()
-}
-
 func showWelcomeMenu() {
-	m, err := tea.NewProgram(welcomeModel{cursor: 0}).Run()
-	if err != nil {
-		log.Fatalf("Error: %v", err)
-	}
-	result := m.(welcomeModel)
-	if result.quit {
+	choice := setup.RunWelcome()
+	if choice == 0 {
 		return
 	}
 
 	fmt.Println()
 
-	switch result.choice {
+	switch choice {
 	case 1:
 		quickSetup()
 	case 2:

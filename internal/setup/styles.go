@@ -2,6 +2,7 @@ package setup
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -21,22 +22,22 @@ var (
 			Padding(0, 1)
 
 	HighlightStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("42")).
+			Foreground(lipgloss.Color("76")).
 			Bold(true)
 
 	ErrorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")).
+			Foreground(lipgloss.Color("160")).
 			Bold(true)
 
 	InfoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39"))
+			Foreground(lipgloss.Color("45"))
 
 	CheckMark = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("42")).
+			Foreground(lipgloss.Color("76")).
 			SetString("✓")
 
 	CrossMark = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")).
+			Foreground(lipgloss.Color("160")).
 			SetString("✗")
 
 	ArrowStyle = lipgloss.NewStyle().
@@ -57,7 +58,7 @@ var (
 			Padding(0, 1)
 
 	SelectedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("42")).
+			Foreground(lipgloss.Color("63")).
 			Bold(true).
 			Padding(0, 1)
 
@@ -76,24 +77,34 @@ var (
 			Padding(0, 1)
 
 	BadgeRecommended = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("42")).
+				Foreground(lipgloss.Color("76")).
 				Bold(true).
 				SetString("RECOMMENDED")
 
 	BadgeWarning = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("214")).
 			SetString("WARNING")
+
+	CursorStyle = DimStyle.Copy().SetString(" ●")
+
+	BulletStyle = DimStyle.Copy().SetString(" ○")
 )
 
 func Header(step, total int, title string) string {
 	s := TitleStyle.Render("Vision MCP - Setup Wizard")
 	s += "\n"
 	s += StepStyle.Render(fmt.Sprintf("Step %d of %d: %s", step, total, title))
+	s += "\n"
+	s += strings.Repeat("─", 60)
 	return s
 }
 
 func Box(title string, content string) string {
 	return BoxStyle.Copy().SetString(title + "\n" + content).String()
+}
+
+func Divider() string {
+	return DimStyle.Render(strings.Repeat("─", 60))
 }
 
 func ProgressBar(percent float64, width int) string {

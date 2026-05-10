@@ -78,16 +78,16 @@ func (m AgentSetupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 
-	case " ":
-		m.checked[m.cursor] = !m.checked[m.cursor]
+		case " ":
+			m.checked[m.cursor] = !m.checked[m.cursor]
 
-	case "enter":
-		if m.cursor == len(m.agents) {
-			m.confirm = true
-			m.done = true
-			return m, tea.Quit
-		}
-		m.cursor = len(m.agents)
+		case "enter":
+			if m.cursor == len(m.agents) {
+				m.confirm = true
+				m.done = true
+				return m, tea.Quit
+			}
+			m.cursor = len(m.agents)
 
 		case "esc", "escape", "backspace":
 			m.quit = true
@@ -105,6 +105,8 @@ func (m AgentSetupModel) View() string {
 	var s strings.Builder
 
 	s.WriteString(TitleStyle.Render("MCP Agent Setup"))
+	s.WriteString("\n")
+	s.WriteString(Divider())
 	s.WriteString("\n\n")
 	s.WriteString(InfoStyle.Render("Select agents to configure with vision-mcp:"))
 	s.WriteString("\n\n")
@@ -135,21 +137,24 @@ func (m AgentSetupModel) View() string {
 		if m.cursor == i {
 			checkbox = SelectedStyle.Render(checkbox)
 			name = SelectedStyle.Render(name)
-			s.WriteString(fmt.Sprintf("  %s %s %s  %s\n", "●", checkbox, name, status))
+			s.WriteString(fmt.Sprintf(" %s %s %s  %s\n", CursorStyle.String(), checkbox, name, status))
 		} else {
-			s.WriteString(fmt.Sprintf("  ○ %s %s  %s\n", checkbox, name+padding, status))
+			checkbox = DimStyle.Render(checkbox)
+			s.WriteString(fmt.Sprintf(" %s %s %s  %s\n", BulletStyle.String(), checkbox, name+padding, status))
 		}
 	}
 
-	separator := strings.Repeat("─", 50)
-	s.WriteString(fmt.Sprintf("\n  %s\n\n", DimStyle.Render(separator)))
+	s.WriteString("\n")
+	s.WriteString(Divider())
+	s.WriteString("\n\n")
 
 	confirmBtn := "[  Confirm Selection  ]"
 	if m.cursor == len(m.agents) {
 		confirmBtn = SelectedStyle.Render(confirmBtn)
+		s.WriteString(fmt.Sprintf(" %s %s\n", CursorStyle.String(), confirmBtn))
+	} else {
+		s.WriteString(fmt.Sprintf(" %s %s\n", BulletStyle.String(), DimStyle.Render(confirmBtn)))
 	}
-
-	s.WriteString(fmt.Sprintf("  %s\n", confirmBtn))
 
 	s.WriteString("\n\n")
 	s.WriteString(FooterStyle.Render("[↑/↓] navigate  [Space] toggle  [Enter] confirm  [q] quit"))
