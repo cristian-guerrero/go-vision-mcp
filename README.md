@@ -270,6 +270,10 @@ To change models manually, edit `config.json`:
 
 The server will automatically download the new model files on next start. Make sure the mmproj file is correct for your model architecture.
 
+## Benchmarks
+
+See [Benchmarks](docs/BENCHMARKS.md) for performance comparison of supported models on a Windows RTX 3080 16GB laptop (1088×552 screenshot).
+
 ## Setup Wizard Flow
 
 The `--configure` wizard guides you through these steps:
