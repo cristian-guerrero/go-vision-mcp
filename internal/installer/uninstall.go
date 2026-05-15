@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/vision-mcp/internal/config"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/config"
 )
 
 func Uninstall() error {

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vision-mcp/internal/config"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/config"
 )
 
 type ProgressFunc func(downloaded, total int64)

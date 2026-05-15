@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/vision-mcp/internal/image"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/image"
 )
 
 func clipboardImageDataURIImpl() (string, error) {

@@ -3,7 +3,7 @@ package config
 import (
 	"fmt"
 
-	"github.com/vision-mcp/internal/hardware"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/hardware"
 )
 
 func ApplyHardwareDefaults(cfg *Config) error {

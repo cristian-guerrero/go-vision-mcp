@@ -1,4 +1,4 @@
-module github.com/vision-mcp
+module github.com/cristian-guerrero/go-vision-mcp
 
 go 1.26.2
 

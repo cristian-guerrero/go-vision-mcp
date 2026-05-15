@@ -8,10 +8,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/vision-mcp/internal/config"
-	"github.com/vision-mcp/internal/discover"
-	"github.com/vision-mcp/internal/download"
-	"github.com/vision-mcp/internal/hardware"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/config"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/discover"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/download"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/hardware"
 )
 
 type ManualWizard struct {

@@ -13,7 +13,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/vision-mcp/internal/config"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/config"
 )
 
 type ReleaseAsset struct {

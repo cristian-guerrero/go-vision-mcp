@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/vision-mcp/internal/discover"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/discover"
 )
 
 type AgentSetupModel struct {

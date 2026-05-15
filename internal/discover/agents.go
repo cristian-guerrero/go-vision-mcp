@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/vision-mcp/internal/config"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/config"
 )
 
 type AgentType string

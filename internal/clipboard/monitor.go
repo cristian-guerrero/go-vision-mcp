@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vision-mcp/internal/config"
-	"github.com/vision-mcp/internal/image"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/config"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/image"
 )
 
 type PollResult struct {
@@ -31,17 +31,17 @@ type Entry struct {
 }
 
 type Monitor struct {
-	mu       sync.Mutex
-	ctx      context.Context
-	cancel   context.CancelFunc
-	cfg      *config.Config
+	mu     sync.Mutex
+	ctx    context.Context
+	cancel context.CancelFunc
+	cfg    *config.Config
 
-	entries    []Entry
-	lastHash   string
-	cacheDir   string
+	entries     []Entry
+	lastHash    string
+	cacheDir    string
 	historyPath string
-	limit      int
-	intervalMs int
+	limit       int
+	intervalMs  int
 }
 
 func NewMonitor(cfg *config.Config) *Monitor {

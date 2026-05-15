@@ -15,8 +15,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/vision-mcp/internal/clipboard"
-	"github.com/vision-mcp/internal/image"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/clipboard"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/image"
 )
 
 type ToolHandler struct {

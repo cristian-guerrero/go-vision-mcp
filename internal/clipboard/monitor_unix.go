@@ -51,5 +51,3 @@ func x11Poll() (*PollResult, error) {
 	}
 	return &PollResult{Data: data}, nil
 }
-
-

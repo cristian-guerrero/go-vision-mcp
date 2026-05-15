@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/vision-mcp/internal/config"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/config"
 )
 
 type Logger struct {

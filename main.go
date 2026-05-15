@@ -17,17 +17,17 @@ import (
 
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/vision-mcp/internal/agentconfig"
-	"github.com/vision-mcp/internal/clipboard"
-	"github.com/vision-mcp/internal/config"
-	"github.com/vision-mcp/internal/discover"
-	"github.com/vision-mcp/internal/download"
-	"github.com/vision-mcp/internal/hardware"
-	"github.com/vision-mcp/internal/installer"
-	"github.com/vision-mcp/internal/llamaserver"
-	"github.com/vision-mcp/internal/logger"
-	mcptools "github.com/vision-mcp/internal/mcp"
-	"github.com/vision-mcp/internal/setup"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/agentconfig"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/clipboard"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/config"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/discover"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/download"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/hardware"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/installer"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/llamaserver"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/logger"
+	mcptools "github.com/cristian-guerrero/go-vision-mcp/internal/mcp"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/setup"
 )
 
 var version = "1.0.0"
