@@ -1,3 +1,6 @@
+// Package clipboard monitors the system clipboard for new images and
+// maintains a history (capped to a configurable limit). It supports
+// Windows (PowerShell), X11 (xclip), and Wayland (wl-paste).
 package clipboard
 
 import (
@@ -18,11 +21,14 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/image"
 )
 
+// PollResult is the outcome of a clipboard poll: either raw PNG bytes
+// or the path to an image file found in the clipboard (file drop list).
 type PollResult struct {
 	Data         []byte
 	OriginalPath string
 }
 
+// Entry represents a single clipboard image in the history.
 type Entry struct {
 	Index        int       `json:"index"`
 	Timestamp    time.Time `json:"timestamp"`
@@ -30,6 +36,9 @@ type Entry struct {
 	CachedPath   string    `json:"cached_path,omitempty"`
 }
 
+// Monitor periodically polls the system clipboard for new images,
+// stores them in a ring buffer (up to limit), and persists history
+// to disk for recovery across restarts.
 type Monitor struct {
 	mu     sync.Mutex
 	ctx    context.Context
@@ -44,6 +53,7 @@ type Monitor struct {
 	intervalMs  int
 }
 
+// NewMonitor creates a clipboard Monitor. Call Start() to begin polling.
 func NewMonitor(cfg *config.Config) *Monitor {
 	cacheDir := cfg.ClipboardCacheDirPath()
 	return &Monitor{
@@ -55,6 +65,8 @@ func NewMonitor(cfg *config.Config) *Monitor {
 	}
 }
 
+// Start begins the background polling goroutine and loads any previous
+// clipboard history from disk.
 func (m *Monitor) Start() {
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	os.MkdirAll(m.cacheDir, 0755)
@@ -63,6 +75,7 @@ func (m *Monitor) Start() {
 	go m.pollLoop()
 }
 
+// Stop cancels the polling goroutine and purges all cached images.
 func (m *Monitor) Stop() {
 	if m.cancel != nil {
 		m.cancel()
@@ -73,6 +86,7 @@ func (m *Monitor) Stop() {
 	log.Printf("Clipboard monitor stopped, cache cleared")
 }
 
+// ListHistory returns a copy of the clipboard history sorted by index.
 func (m *Monitor) ListHistory() []Entry {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -84,6 +98,9 @@ func (m *Monitor) ListHistory() []Entry {
 	return result
 }
 
+// GetImage returns a data URI for the clipboard history entry at the
+// given index. It resolves the image from the original file path or
+// the local cache.
 func (m *Monitor) GetImage(index int) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -106,6 +123,8 @@ func (m *Monitor) GetImage(index int) (string, error) {
 	return "", fmt.Errorf("clipboard image #%d not found in history (available: 1-%d)", index, len(m.entries))
 }
 
+// GetLatestImage returns a data URI for the most recent clipboard
+// history entry.
 func (m *Monitor) GetLatestImage() (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -128,12 +147,15 @@ func (m *Monitor) GetLatestImage() (string, error) {
 	return "", fmt.Errorf("clipboard history entry #%d has no image data", last.Index)
 }
 
+// ClearHistory removes all cached images and the history file.
 func (m *Monitor) ClearHistory() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.purgeCache()
 }
 
+// pollLoop runs every 500ms and checks the clipboard for new images.
+// New images are deduplicated by hash and stored in the ring buffer.
 func (m *Monitor) pollLoop() {
 	ticker := time.NewTicker(time.Duration(m.intervalMs) * time.Millisecond)
 	defer ticker.Stop()
@@ -164,6 +186,9 @@ func (m *Monitor) pollLoop() {
 	}
 }
 
+// hashResult produces a content-based hash for deduplication.
+// For file-based entries it hashes the path; for raw data it hashes
+// the bytes (first 16 bytes of SHA-256, base64-encoded).
 func (m *Monitor) hashResult(r *PollResult) string {
 	if r.OriginalPath != "" {
 		hash := sha256.Sum256([]byte(r.OriginalPath))
@@ -176,6 +201,9 @@ func (m *Monitor) hashResult(r *PollResult) string {
 	return ""
 }
 
+// saveEntry inserts a new clipboard entry into the ring buffer. When
+// the buffer exceeds the limit, the oldest entry is evicted and its
+// cache file deleted.
 func (m *Monitor) saveEntry(result *PollResult, hash string) {
 	if len(m.entries) >= m.limit {
 		oldest := m.entries[0]
@@ -219,6 +247,7 @@ func (m *Monitor) saveEntry(result *PollResult, hash string) {
 	m.saveHistory()
 }
 
+// purgeCache removes all cached image files and resets the entry list.
 func (m *Monitor) purgeCache() {
 	for _, e := range m.entries {
 		if e.CachedPath != "" {
@@ -229,10 +258,13 @@ func (m *Monitor) purgeCache() {
 	os.Remove(m.historyPath)
 }
 
+// historyFilePath returns the path to the persisted history JSON file.
 func (m *Monitor) historyFilePath() string {
 	return m.historyPath
 }
 
+// loadHistory reads and validates the persisted clipboard history
+// from disk. Entries whose files no longer exist are pruned.
 func (m *Monitor) loadHistory() {
 	data, err := os.ReadFile(m.historyPath)
 	if err != nil {
@@ -260,6 +292,7 @@ func (m *Monitor) loadHistory() {
 	}
 }
 
+// saveHistory writes the current entry list to disk as JSON.
 func (m *Monitor) saveHistory() {
 	data, err := json.MarshalIndent(m.entries, "", "  ")
 	if err != nil {

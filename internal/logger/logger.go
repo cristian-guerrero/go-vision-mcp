@@ -1,3 +1,6 @@
+// Package logger initializes the application log file at
+// ~/.go-mcp/vision/vision-mcp.log and sets Go's standard log package
+// to write to both stderr and the file.
 package logger
 
 import (
@@ -10,10 +13,13 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/config"
 )
 
+// Logger wraps the log file for deferred closing.
 type Logger struct {
 	file *os.File
 }
 
+// Init opens the log file in append mode and configures the standard
+// log package to write to both stderr and the file simultaneously.
 func Init() (*Logger, error) {
 	logDir := config.InstallDir()
 	if err := os.MkdirAll(logDir, 0755); err != nil {
@@ -33,6 +39,7 @@ func Init() (*Logger, error) {
 	return &Logger{file: f}, nil
 }
 
+// Close closes the underlying log file.
 func (l *Logger) Close() error {
 	if l.file != nil {
 		return l.file.Close()

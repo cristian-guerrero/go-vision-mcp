@@ -1,3 +1,6 @@
+// Package image resolves image references (URLs, file paths, data URIs)
+// into data:image/...;base64,... URIs suitable for llama-server's
+// vision API. WebP images are automatically converted to PNG.
 package image
 
 import (
@@ -12,6 +15,12 @@ import (
 	"strings"
 )
 
+// ResolveToDataURI converts an image reference to a data URI.
+// Accepted formats:
+//   - data: URIs (passed through)
+//   - http:// or https:// URLs (downloaded)
+//   - file:/// URIs (decoded and read)
+//   - Local file paths (read from disk)
 func ResolveToDataURI(ref string) (string, error) {
 	if strings.HasPrefix(ref, "data:") {
 		return ref, nil
@@ -33,6 +42,8 @@ func ResolveToDataURI(ref string) (string, error) {
 	return fileToDataURI(ref)
 }
 
+// fileToDataURI reads a local image file and returns its data URI.
+// WebP files are transparently converted to PNG.
 func fileToDataURI(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -51,6 +62,7 @@ func fileToDataURI(path string) (string, error) {
 	return encodeDataURI(mime, data), nil
 }
 
+// downloadToDataURI fetches an image via HTTP and returns its data URI.
 func downloadToDataURI(url string) (string, error) {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -75,11 +87,14 @@ func downloadToDataURI(url string) (string, error) {
 	return encodeDataURI(mime, data), nil
 }
 
+// encodeDataURI builds a data: URI from MIME type and raw bytes.
 func encodeDataURI(mime string, data []byte) string {
 	b64 := base64.StdEncoding.EncodeToString(data)
 	return fmt.Sprintf("data:%s;base64,%s", mime, b64)
 }
 
+// mimeType returns the MIME type for common image extensions
+// (png → image/png, jpg/jpeg → image/jpeg, webp → image/webp, etc.).
 func mimeType(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {

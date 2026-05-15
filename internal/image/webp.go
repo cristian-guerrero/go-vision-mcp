@@ -1,3 +1,4 @@
+// Package image — WebP to PNG conversion.
 package image
 
 import (
@@ -8,6 +9,8 @@ import (
 	"golang.org/x/image/webp"
 )
 
+// DecodeWebPToPNG decodes WebP image bytes and re-encodes them as PNG.
+// This is needed because llama-server does not accept WebP images.
 func DecodeWebPToPNG(raw []byte) ([]byte, error) {
 	img, err := webp.Decode(bytes.NewReader(raw))
 	if err != nil {

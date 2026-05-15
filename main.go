@@ -141,6 +141,9 @@ func main() {
 	runServer()
 }
 
+// configExists checks whether a JSON config file exists at
+// the standard path (~/.go-mcp/vision/config.json) or as a
+// portable config (vision-mcp.json in the working directory).
 func configExists() bool {
 	if _, err := os.Stat(config.ConfigPath()); err == nil {
 		return true
@@ -151,6 +154,8 @@ func configExists() bool {
 	return false
 }
 
+// isInteractive returns true when stdin is a character device
+// (i.e., the process is running in an interactive terminal).
 func isInteractive() bool {
 	info, err := os.Stdin.Stat()
 	if err != nil {
@@ -159,6 +164,8 @@ func isInteractive() bool {
 	return (info.Mode() & os.ModeCharDevice) != 0
 }
 
+// showNonInteractiveMessage displays a one-shot message when the binary
+// is double-clicked on Windows (via MessageBoxW) or prints to stderr on Unix.
 func showNonInteractiveMessage() {
 	msg := "Vision MCP\n\n" +
 		"To use Vision MCP, run this from a terminal:\n" +
@@ -174,6 +181,8 @@ func showNonInteractiveMessage() {
 	}
 }
 
+// showWelcomeMenu displays the initial Bubble Tea TUI with 6 options:
+// Quick setup, Guided wizard, Manual config, MCP setup, Status, or Exit.
 func showWelcomeMenu() {
 	choice := setup.RunWelcome()
 	if choice == 0 {
@@ -200,6 +209,9 @@ func showWelcomeMenu() {
 	}
 }
 
+// quickSetup runs a non-interactive auto-install: copies the binary,
+// detects hardware, recommends quantization/backend, and optionally
+// finds existing GGUF models in the default models directory.
 func quickSetup() {
 	fmt.Println("\nRunning quick setup...")
 
@@ -258,6 +270,9 @@ func quickSetup() {
 	promptMCPSetup()
 }
 
+// runWizardCmd launches the interactive 5-step TUI wizard for
+// selecting model, backend, quantization, clipboard monitoring,
+// then runs the download screen and prompts for MCP agent setup.
 func runWizardCmd() {
 	cfg, err := setup.RunWizard()
 	if err != nil {
@@ -291,6 +306,9 @@ func runWizardCmd() {
 	}
 }
 
+// runManualWizard launches the TUI for advanced users who already have
+// model files (from LM Studio, Ollama, or custom paths) and want to
+// point to them manually instead of auto-downloading.
 func runManualWizard() {
 	cfg, err := setup.RunManualWizard()
 	if err != nil {
@@ -318,6 +336,9 @@ func runManualWizard() {
 	}
 }
 
+// runMCPSetup detects installed AI coding agents (Kilo Code, OpenCode,
+// PI Agent, Zed Editor) and interactively configures them to use
+// vision-mcp as an MCP server.
 func runMCPSetup() {
 	exe, err := os.Executable()
 	if err != nil {
@@ -379,11 +400,14 @@ func runMCPSetup() {
 	}
 }
 
+// homeDir returns the current user's home directory, or empty on error.
 func homeDir() string {
 	home, _ := os.UserHomeDir()
 	return home
 }
 
+// promptMCPSetup is called after configuration completes. It detects
+// agents and, if found, presents a TUI to configure them to use vision-mcp.
 func promptMCPSetup() {
 	exe, err := os.Executable()
 	if err != nil {
@@ -436,6 +460,8 @@ func promptMCPSetup() {
 	}
 }
 
+// runInstallCmd copies the binary to ~/.go-mcp/vision/, creates
+// shell launchers, adds the directory to PATH, and writes a config.
 func runInstallCmd() {
 	installDir := installer.InstallDir()
 	fmt.Printf("Installing to %s...\n", installDir)
@@ -469,12 +495,17 @@ func runInstallCmd() {
 	promptMCPSetup()
 }
 
+// runUninstallCmd removes the install directory and prints a message
+// about leftover PATH entries and config file.
 func runUninstallCmd() {
 	if err := installer.Uninstall(); err != nil {
 		log.Fatalf("Uninstall error: %v", err)
 	}
 }
 
+// runFreeMemory checks port 8001 for a running llama-server, sends
+// SIGTERM, then kills the process. Falls back to killing any
+// llama-server process by name (taskkill/pkill).
 func runFreeMemory() {
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -507,6 +538,8 @@ func runFreeMemory() {
 	killAnyLlamaServer()
 }
 
+// killAnyLlamaServer uses taskkill (Windows) or pkill (Unix) to
+// forcefully terminate all llama-server processes.
 func killAnyLlamaServer() {
 	bin := "llama-server"
 	if runtime.GOOS == "windows" {
@@ -526,6 +559,8 @@ func killAnyLlamaServer() {
 	}
 }
 
+// findProcessOnPort returns the PID of the process listening on the
+// given TCP port. Uses netstat (Windows) or lsof (Unix).
 func findProcessOnPort(port int) int {
 	pid := 0
 	portStr := fmt.Sprintf(":%d ", port)
@@ -554,6 +589,12 @@ func findProcessOnPort(port int) int {
 	return pid
 }
 
+// resolveLlamaServer returns the path to a llama-server binary.
+// Three modes:
+//   - "auto": downloads the binary matching LlamaBackend
+//   - "custom": uses the user-configured LlamaServerPath
+//   - "" (default): looks in PATH first, falls back to auto-download
+// Returns (resolvedPath, newPathIfDownloaded, error).
 func resolveLlamaServer(cfg *config.Config) (binPath, newPath string, err error) {
 	mode := cfg.LlamaServerMode
 	if mode == "" && cfg.LlamaServerPath == "auto-download" {
@@ -602,6 +643,10 @@ func resolveLlamaServer(cfg *config.Config) (binPath, newPath string, err error)
 	}
 }
 
+// runServer starts the MCP server in STDIO mode. It performs async
+// initialization: hardware detection, port reuse check, model download
+// (lazy), and llama-server startup (lazy on first tool call).
+// Also starts idle timeout monitor and signal handler goroutines.
 func runServer() {
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -771,6 +816,10 @@ func runServer() {
 	handler.Stop()
 }
 
+// runAnalyzeClipboard is the --analyze-clipboard CLI entrypoint.
+// It reads the clipboard image, ensures models and llama-server are
+// ready (downloading if needed), starts llama-server, and prints the
+// model's answer to stdout.
 func runAnalyzeClipboard(prompt string) {
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -829,6 +878,8 @@ func runAnalyzeClipboard(prompt string) {
 	fmt.Println(result)
 }
 
+// displayStatus prints the current config, hardware profile,
+// recommended backend and quantization, and available tools.
 func displayStatus() {
 	cfg, _ := config.LoadConfig()
 	fmt.Println("Vision MCP Status")
@@ -868,6 +919,8 @@ func displayStatus() {
 	fmt.Println("  analyze_clipboard(prompt)")
 }
 
+// runDownload is the --download entrypoint. It ensures model files
+// (GGUF + mmproj) exist, downloading from HuggingFace if needed.
 func runDownload() {
 	cfg, _ := config.LoadConfig()
 	fmt.Println("Downloading models...")
@@ -877,6 +930,8 @@ func runDownload() {
 	fmt.Println("Models ready.")
 }
 
+// downloadProgress returns a ProgressFunc callback that logs download
+// progress (percentage and bytes) to the application log.
 func downloadProgress(label string) download.ProgressFunc {
 	return func(downloaded, total int64) {
 		if total > 0 && downloaded > 0 {

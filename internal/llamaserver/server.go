@@ -1,3 +1,6 @@
+// Package llamaserver manages the llama-server sidecar process.
+// It starts the binary as a subprocess, waits for its health endpoint,
+// and provides graceful shutdown with SIGTERM → 3s → SIGKILL.
 package llamaserver
 
 import (
@@ -13,6 +16,8 @@ import (
 	"time"
 )
 
+// Server wraps a llama-server subprocess. It holds the command,
+// arguments, and health-check state.
 type Server struct {
 	cmd    *exec.Cmd
 	port   int
@@ -26,6 +31,8 @@ type Server struct {
 	ctv    string
 }
 
+// New creates a Server but does not start it. The binary is expected
+// to be on PATH or the full path must be given as binaryName.
 func New(modelPath, mmprojPath string, port, ngl, nctx int, flashAttn bool, binaryName, kvCacheTypeK, kvCacheTypeV string) *Server {
 	return &Server{
 		model:  modelPath,
@@ -40,6 +47,10 @@ func New(modelPath, mmprojPath string, port, ngl, nctx int, flashAttn bool, bina
 	}
 }
 
+// Start launches llama-server as a subprocess with the configured
+// arguments (model, mmproj, port, GPU layers, context size, flash
+// attention, KV cache quantization). It then polls GET /health up to
+// 60 seconds until the server responds 200 OK.
 func (s *Server) Start(ctx context.Context) error {
 	binary := s.bin
 	if binary == "" {
@@ -104,6 +115,8 @@ func (s *Server) Start(ctx context.Context) error {
 	return s.waitForHealth(ctx, 60*time.Second)
 }
 
+// waitForHealth polls the llama-server health endpoint every 2 seconds
+// until it responds with 200 OK or the context/timeout expires.
 func (s *Server) waitForHealth(ctx context.Context, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -129,6 +142,8 @@ func (s *Server) waitForHealth(ctx context.Context, timeout time.Duration) error
 	}
 }
 
+// Stop gracefully terminates llama-server: sends SIGTERM, waits up to
+// 3 seconds, then escalates to SIGKILL.
 func (s *Server) Stop() error {
 	if s.cmd == nil || s.cmd.Process == nil {
 		return nil
@@ -151,6 +166,8 @@ func (s *Server) Stop() error {
 	}
 }
 
+// URL returns the base URL of the running server, e.g.
+// http://127.0.0.1:8001.
 func (s *Server) URL() string {
 	return fmt.Sprintf("http://127.0.0.1:%d", s.port)
 }

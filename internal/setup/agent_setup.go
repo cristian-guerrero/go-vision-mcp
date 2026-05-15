@@ -1,3 +1,4 @@
+// Package setup — agent configuration TUI.
 package setup
 
 import (
@@ -9,6 +10,8 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/discover"
 )
 
+// AgentSetupModel is a Bubble Tea model for selecting which AI coding
+// agents to configure with vision-mcp as an MCP server.
 type AgentSetupModel struct {
 	agents  []discover.AgentInfo
 	checked map[int]bool
@@ -20,6 +23,8 @@ type AgentSetupModel struct {
 	err     string
 }
 
+// RunAgentSetup presents a TUI checklist of detected agents and returns
+// the subset the user selected for MCP configuration.
 func RunAgentSetup(agents []discover.AgentInfo) ([]discover.AgentInfo, error) {
 	if len(agents) == 0 {
 		return nil, nil

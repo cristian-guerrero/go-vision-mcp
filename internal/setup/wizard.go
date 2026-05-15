@@ -1,3 +1,6 @@
+// Package setup provides Bubble Tea TUI models for configuration
+// wizards, manual setup, model selection, download progress, and
+// agent configuration screens.
 package setup
 
 import (
@@ -11,6 +14,9 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/hardware"
 )
 
+// Wizard implements a 5-step Bubble Tea model: Model → Backend →
+// Quantization → Clipboard → Summary. It walks the user through the
+// entire initial configuration interactively.
 type Wizard struct {
 	hw            *hardware.HardwareProfile
 	cfg           *config.Config
@@ -30,6 +36,8 @@ type Wizard struct {
 	err       error
 }
 
+// NewWizard creates a Wizard pre-populated with detected hardware and
+// default config values.
 func NewWizard() *Wizard {
 	hw, _ := hardware.DetectHardware()
 	cfg := config.DefaultConfig()
@@ -54,6 +62,8 @@ func NewWizard() *Wizard {
 	}
 }
 
+// RunWizard creates and runs the interactive TUI wizard, returning the
+// final config (or nil if cancelled) and any error.
 func RunWizard() (*config.Config, error) {
 	w := NewWizard()
 	p := tea.NewProgram(w, tea.WithAltScreen())

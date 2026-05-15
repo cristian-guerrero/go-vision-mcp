@@ -1,3 +1,7 @@
+// Package discover detects installed AI coding agents (Kilo Code,
+// OpenCode, PI Agent, Zed Editor) and their MCP configuration, and
+// also finds existing llama-server and vision model files (LM Studio,
+// Ollama) on the system.
 package discover
 
 import (
@@ -12,6 +16,7 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/config"
 )
 
+// AgentType is an enum-like string for supported AI coding agents.
 type AgentType string
 
 const (
@@ -21,6 +26,7 @@ const (
 	AgentZed      AgentType = "zed"
 )
 
+// AgentInfo describes a detected coding agent and its MCP config state.
 type AgentInfo struct {
 	Type       AgentType
 	Name       string
@@ -29,6 +35,7 @@ type AgentInfo struct {
 	Configured bool
 }
 
+// MCPConfig is a generic MCP server entry for Kilo/OpenCode format.
 type MCPConfig struct {
 	Type    string   `json:"type"`
 	Command []string `json:"command,omitempty"`
@@ -36,33 +43,41 @@ type MCPConfig struct {
 	Enabled *bool    `json:"enabled,omitempty"`
 }
 
+// KiloConfig maps the MCP block in Kilo's kilo.json.
 type KiloConfig struct {
 	MCP map[string]MCPConfig `json:"mcp"`
 }
 
+// OpenCodeConfig maps the MCP block in OpenCode's opencode.json.
 type OpenCodeConfig struct {
 	MCP map[string]MCPConfig `json:"mcp"`
 }
 
+// PiMCPEntry is a single MCP server entry in PI Agent's mcp.json.
 type PiMCPEntry struct {
 	Command string   `json:"command,omitempty"`
 	Args    []string `json:"args,omitempty"`
 }
 
+// PiMCPConfig wraps the mcpServers block in PI Agent's config.
 type PiMCPConfig struct {
 	MCPServers map[string]PiMCPEntry `json:"mcpServers"`
 }
 
+// ZedContextServer describes a context server entry in Zed settings.
 type ZedContextServer struct {
 	Command string            `json:"command,omitempty"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 }
 
+// ZedSettings maps the context_servers block in Zed's settings.json.
 type ZedSettings struct {
 	ContextServers map[string]ZedContextServer `json:"context_servers"`
 }
 
+// DetectAgents checks for the presence of Kilo Code, OpenCode, PI Agent,
+// and Zed Editor configuration files and returns a list of AgentInfo.
 func DetectAgents(binaryPath string) []AgentInfo {
 	agents := []AgentInfo{
 		detectKilo(binaryPath),
@@ -197,6 +212,8 @@ func homeDir() string {
 	return home
 }
 
+// InstallPiMCPAdapter runs "pi install npm:pi-mcp-adapter" to enable
+// PI Agent to use local MCP servers.
 func InstallPiMCPAdapter() error {
 	cmd := exec.Command("pi", "install", "npm:pi-mcp-adapter")
 	cmd.Stdout = os.Stdout
@@ -204,6 +221,8 @@ func InstallPiMCPAdapter() error {
 	return cmd.Run()
 }
 
+// ConfigureAgentMCP writes the vision-mcp MCP entry into the
+// appropriate config file for the given agent type.
 func ConfigureAgentMCP(agent AgentInfo, binaryPath string) error {
 	cmdName := resolveCommandPath(binaryPath)
 
@@ -391,6 +410,8 @@ func configureZedMCP(agent AgentInfo, binaryPath string) error {
 	return writeJSON(path, raw)
 }
 
+// normalizeJSONC strips JSON comments (// and /* */) and trailing
+// commas from JSONC files so they can be parsed as standard JSON.
 func normalizeJSONC(data []byte) []byte {
 	var out bytes.Buffer
 	s := string(data)

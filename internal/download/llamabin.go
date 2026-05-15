@@ -1,3 +1,4 @@
+// Package download — llama.cpp release asset management.
 package download
 
 import (
@@ -16,11 +17,13 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/config"
 )
 
+// ReleaseAsset represents a downloadable file in a GitHub release.
 type ReleaseAsset struct {
 	Name string `json:"name"`
 	URL  string `json:"browser_download_url"`
 }
 
+// Release represents a GitHub release with tag name and assets.
 type Release struct {
 	TagName string         `json:"tag_name"`
 	Assets  []ReleaseAsset `json:"assets"`
@@ -28,6 +31,8 @@ type Release struct {
 
 const llamaReleasesURL = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
 
+// FetchLatestRelease calls the GitHub API to get the latest
+// llama.cpp release tag and its assets.
 func FetchLatestRelease() (*Release, error) {
 	req, err := http.NewRequest("GET", llamaReleasesURL, nil)
 	if err != nil {
@@ -54,11 +59,16 @@ func FetchLatestRelease() (*Release, error) {
 	return &release, nil
 }
 
+// matchResult holds the primary archive and optional secondary
+// (CUDA runtime DLLs) asset for a backend-specific download.
 type matchResult struct {
 	primary   *ReleaseAsset
 	secondary *ReleaseAsset // extra runtime DLLs (cudart)
 }
 
+// findAssets filters the release assets by OS key and backend
+// (cuda, vulkan, metal, cpu). Returns the first matching primary
+// asset and optionally a secondary CUDA runtime archive.
 func findAssets(release *Release, backend string) *matchResult {
 	osKey := osKey()
 	var standard, extra []*ReleaseAsset
@@ -106,6 +116,8 @@ func findAssets(release *Release, backend string) *matchResult {
 	return result
 }
 
+// osKey returns the platform substring used in release asset names
+// ("win" for Windows, "linux" for Linux, "macos" for Darwin).
 func osKey() string {
 	switch runtime.GOOS {
 	case "windows":
@@ -119,14 +131,20 @@ func osKey() string {
 	}
 }
 
+// llamaServerDir returns the destination directory for llama-server
+// binaries (currently the same as destDir).
 func llamaServerDir(destDir string) string {
 	return destDir
 }
 
+// LlamaServerDir returns the default directory for llama-server.
 func LlamaServerDir() string {
 	return config.DefaultLlamaServerDir()
 }
 
+// EnsureLlamaBinary downloads llama-server for the given backend
+// (cuda/vulkan/metal/cpu) if not already present at destDir.
+// It checks for existing binaries and required DLLs before downloading.
 func EnsureLlamaBinary(backend, destDir string, progress ProgressFunc) (string, error) {
 	binDir := llamaServerDir(destDir)
 	binName := executableName("llama-server")
@@ -181,6 +199,8 @@ func EnsureLlamaBinary(backend, destDir string, progress ProgressFunc) (string, 
 	return binPath, nil
 }
 
+// downloadAndExtract downloads a release archive and extracts the
+// llama-server binary from it.
 func downloadAndExtract(asset *ReleaseAsset, binDir string, progress ProgressFunc) (string, error) {
 	fmt.Printf("Downloading %s...\n", asset.Name)
 
@@ -198,6 +218,8 @@ func downloadAndExtract(asset *ReleaseAsset, binDir string, progress ProgressFun
 	return binaryPath, nil
 }
 
+// downloadAndExtractExtra downloads a secondary archive (e.g. CUDA
+// runtime DLLs) and extracts all files to the bin directory.
 func downloadAndExtractExtra(asset *ReleaseAsset, binDir string, progress ProgressFunc) error {
 	fmt.Printf("Downloading %s (CUDA runtime)...\n", asset.Name)
 
@@ -210,6 +232,8 @@ func downloadAndExtractExtra(asset *ReleaseAsset, binDir string, progress Progre
 	return extractArchive(tmpPath, binDir)
 }
 
+// extractArchive dispatches to zip/tar.gz/tar extraction based on
+// the file extension.
 func extractArchive(archivePath, destDir string) error {
 	ext := strings.ToLower(filepath.Ext(archivePath))
 	switch ext {
@@ -227,6 +251,8 @@ func extractArchive(archivePath, destDir string) error {
 	}
 }
 
+// extractLlamaBinary extracts an archive and returns the path to
+// the llama-server executable found inside.
 func extractLlamaBinary(archivePath, destDir string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(archivePath))
 
@@ -242,6 +268,8 @@ func extractLlamaBinary(archivePath, destDir string) (string, error) {
 	}
 }
 
+// extractFromZip extracts all files from a ZIP archive. When
+// findServer is true, it returns the path to llama-server.exe.
 func extractFromZip(zipPath, destDir string, findServer bool) (string, error) {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
@@ -298,6 +326,7 @@ func extractFromZip(zipPath, destDir string, findServer bool) (string, error) {
 	return binaryPath, nil
 }
 
+// extractFromTarGz opens a .tar.gz archive and extracts the llama-server.
 func extractFromTarGz(tgzPath, destDir string, findServer bool) (string, error) {
 	f, err := os.Open(tgzPath)
 	if err != nil {
@@ -314,6 +343,7 @@ func extractFromTarGz(tgzPath, destDir string, findServer bool) (string, error) 
 	return extractTar(gzr, destDir, findServer)
 }
 
+// extractFromTar opens a .tar archive and extracts the llama-server.
 func extractFromTar(tarPath, destDir string, findServer bool) (string, error) {
 	f, err := os.Open(tarPath)
 	if err != nil {
@@ -324,6 +354,8 @@ func extractFromTar(tarPath, destDir string, findServer bool) (string, error) {
 	return extractTar(f, destDir, findServer)
 }
 
+// extractTar reads a tar stream and extracts files to destDir.
+// If findServer is true, it tracks and returns llama-server's path.
 func extractTar(r io.Reader, destDir string, findServer bool) (string, error) {
 	tr := tar.NewReader(r)
 	var binaryPath string
@@ -371,6 +403,7 @@ func extractTar(r io.Reader, destDir string, findServer bool) (string, error) {
 	return binaryPath, nil
 }
 
+// executableName appends ".exe" on Windows for the given base name.
 func executableName(name string) string {
 	if runtime.GOOS == "windows" {
 		return name + ".exe"

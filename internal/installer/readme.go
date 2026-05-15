@@ -1,3 +1,4 @@
+// Package installer — README generation for installed directory.
 package installer
 
 import (
@@ -6,6 +7,8 @@ import (
 	"path/filepath"
 )
 
+// GenerateReadme writes a README.md into the install directory with
+// instructions for configuring various MCP clients.
 func GenerateReadme(installDir string) error {
 	content := fmt.Sprintf(`# Vision MCP - Installed in this directory
 

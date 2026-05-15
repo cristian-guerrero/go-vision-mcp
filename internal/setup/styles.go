@@ -1,3 +1,4 @@
+// Package setup — shared TUI styling definitions.
 package setup
 
 import (
@@ -7,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Shared lipgloss styles and utility functions for all TUI screens.
 var (
 	TitleStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -90,6 +92,8 @@ var (
 	BulletStyle = DimStyle.Copy().SetString(" ○")
 )
 
+// Header renders the wizard header showing "Vision MCP - Setup Wizard"
+// and "Step N of M: Title".
 func Header(step, total int, title string) string {
 	s := TitleStyle.Render("Vision MCP - Setup Wizard")
 	s += "\n"
@@ -99,14 +103,17 @@ func Header(step, total int, title string) string {
 	return s
 }
 
+// Box renders a bordered box with a title and content.
 func Box(title string, content string) string {
 	return BoxStyle.Copy().SetString(title + "\n" + content).String()
 }
 
+// Divider renders a dimmed horizontal line of 60 dashes.
 func Divider() string {
 	return DimStyle.Render(strings.Repeat("─", 60))
 }
 
+// ProgressBar renders a filled progress bar (█/░) of the given width.
 func ProgressBar(percent float64, width int) string {
 	filled := int(percent / 100 * float64(width))
 	bar := ""

@@ -1,3 +1,4 @@
+// Package discover — LM Studio model discovery.
 package discover
 
 import (
@@ -7,6 +8,8 @@ import (
 	"strings"
 )
 
+// ModelInfo describes a discovered GGUF vision model on the local
+// filesystem (from LM Studio or Ollama).
 type ModelInfo struct {
 	Name       string
 	Path       string
@@ -16,6 +19,9 @@ type ModelInfo struct {
 	Size       int64
 }
 
+// FindLMModels walks the LM Studio models directory (~/.lmstudio/models/
+// and ~/Library/Application Support/LM Studio/models/ on macOS) and
+// returns all GGUF model files with their associated mmproj files.
 func FindLMModels() ([]ModelInfo, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

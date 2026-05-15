@@ -1,3 +1,6 @@
+// Package config manages the application configuration: loading from
+// disk, saving, path resolution for models/mmproj/llama-server, and
+// detection of existing GGUF files in the models directory.
 package config
 
 import (
@@ -10,6 +13,8 @@ import (
 	"strings"
 )
 
+// Config holds all user-facing and internal settings for vision-mcp.
+// All fields are emitted in config.json; empty strings signal "use default".
 type Config struct {
 	RepoID                  string `json:"repo_id"`
 	Quantization            string `json:"quantization"`
@@ -37,6 +42,12 @@ type Config struct {
 	ClipboardCacheDir       string `json:"clipboard_cache_dir"`
 }
 
+// DefaultConfig returns a Config pre-filled with sensible defaults:
+//   - Model: unsloth/Qwen3-VL-4B-Instruct-GGUF (IQ4_XS)
+//   - Backend: CUDA (fallback: CPU on detect)
+//   - Port: 8001, Context: 8192, Flash attention on
+//   - KV cache quantization: q4_0
+//   - Idle timeout: 5 min, clipboard monitor: enabled (limit: 5)
 func DefaultConfig() Config {
 	return Config{
 		RepoID:                  "unsloth/Qwen3-VL-4B-Instruct-GGUF",
@@ -63,19 +74,27 @@ func DefaultConfig() Config {
 	}
 }
 
+// InstallDir returns ~/.go-mcp/vision/ — the canonical install and
+// config directory.
 func InstallDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".go-mcp", "vision")
 }
 
+// ConfigPath returns the standard config file location:
+// ~/.go-mcp/vision/config.json.
 func ConfigPath() string {
 	return filepath.Join(InstallDir(), "config.json")
 }
 
+// PortableConfigPath returns "vision-mcp.json" for a portable config
+// that lives beside the executable or in the working directory.
 func PortableConfigPath() string {
 	return "vision-mcp.json"
 }
 
+// LoadConfig reads the JSON config from the standard path, falling
+// back to the portable path. If neither exists, returns DefaultConfig.
 func LoadConfig() (*Config, error) {
 	cfg := DefaultConfig()
 
@@ -99,6 +118,8 @@ func LoadConfig() (*Config, error) {
 	return &cfg, nil
 }
 
+// Save writes the config as indented JSON to ConfigPath(), creating
+// directories as needed.
 func (c *Config) Save() error {
 	path := ConfigPath()
 	os.MkdirAll(InstallDir(), 0755)
@@ -116,6 +137,8 @@ func (c *Config) Save() error {
 	return os.WriteFile(path, data, 0644)
 }
 
+// llamaBinDefault returns the default llama-server binary name
+// (with .exe on Windows).
 func llamaBinDefault() string {
 	if runtime.GOOS == "windows" {
 		return "llama-server.exe"
@@ -123,20 +146,27 @@ func llamaBinDefault() string {
 	return "llama-server"
 }
 
+// DefaultModelsDir returns ~/.go-mcp/models/llm/.
 func DefaultModelsDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".go-mcp", "models", "llm")
 }
 
+// DefaultLlamaServerDir returns ~/.go-mcp/llama-cpp/.
 func DefaultLlamaServerDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".go-mcp", "llama-cpp")
 }
 
+// ModelDir returns the subdirectory under ModelsDir for the current
+// repo, e.g. ~/.go-mcp/models/llm/unsloth/Qwen3-VL-4B-Instruct-GGUF/.
 func (c *Config) ModelDir() string {
 	return filepath.Join(c.ModelsDir, c.RepoID)
 }
 
+// ModelPath returns the absolute path to the model GGUF file.
+// Respects ModelPathOverride when set. Checks both the repo
+// subdirectory and the old flat location for backwards compatibility.
 func (c *Config) ModelPath() string {
 	if c.ModelPathOverride != "" {
 		return c.ModelPathOverride
@@ -151,6 +181,8 @@ func (c *Config) ModelPath() string {
 	return newPath
 }
 
+// MMProjPath returns the absolute path to the mmproj GGUF file
+// (vision projector). Respects MMProjPathOverride when set.
 func (c *Config) MMProjPath() string {
 	if c.MMProjPathOverride != "" {
 		return c.MMProjPathOverride
@@ -165,6 +197,9 @@ func (c *Config) MMProjPath() string {
 	return newPath
 }
 
+// ClipboardCacheDirPath returns the directory for clipboard image
+// cache files. Uses ClipboardCacheDir override if set, otherwise
+// defaults to ~/.go-mcp/vision/clipboard-cache/.
 func (c *Config) ClipboardCacheDirPath() string {
 	if c.ClipboardCacheDir != "" {
 		return c.ClipboardCacheDir
@@ -172,16 +207,23 @@ func (c *Config) ClipboardCacheDirPath() string {
 	return filepath.Join(InstallDir(), "clipboard-cache")
 }
 
+// modelNameFromRepo extracts the model name from a HuggingFace repo ID
+// by taking the last path segment and stripping the "-GGUF" suffix.
+// Example: "unsloth/Qwen3-VL-4B-Instruct-GGUF" → "Qwen3-VL-4B-Instruct".
 func modelNameFromRepo(repoID string) string {
 	parts := strings.Split(repoID, "/")
 	return strings.TrimSuffix(parts[len(parts)-1], "-GGUF")
 }
 
+// DetectedModels holds paths to existing GGUF files found on disk.
 type DetectedModels struct {
 	ModelPath  string
 	MMProjPath string
 }
 
+// DetectExistingModels walks the default models directory and returns
+// the largest GGUF model file and the first mmproj file found.
+// Returns nil when nothing is found.
 func DetectExistingModels() *DetectedModels {
 	modelsDir := DefaultModelsDir()
 	if _, err := os.Stat(modelsDir); os.IsNotExist(err) {

@@ -1,3 +1,4 @@
+// Package setup — welcome menu shown when no config is found.
 package setup
 
 import (
@@ -8,6 +9,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// WelcomeModel is the first TUI screen offering 6 options: Quick setup,
+// Guided wizard, Manual config, MCP setup, Show status, or Exit.
 type WelcomeModel struct {
 	cursor int
 	choice int
@@ -27,6 +30,8 @@ var welcomeOptions = []struct {
 	{"6", "Exit"},
 }
 
+// RunWelcome displays the welcome menu and returns the user's choice
+// (1-6) or 0 on quit/error.
 func RunWelcome() int {
 	m, err := tea.NewProgram(WelcomeModel{cursor: 0}).Run()
 	if err != nil {

@@ -1,3 +1,4 @@
+// Package discover — Ollama model discovery.
 package discover
 
 import (
@@ -7,6 +8,7 @@ import (
 	"strings"
 )
 
+// ollamaManifest represents an Ollama model manifest JSON file.
 type ollamaManifest struct {
 	Layers []ollamaLayer `json:"layers"`
 }
@@ -25,6 +27,8 @@ func ollamaModelsDir() string {
 	return filepath.Join(home, ".ollama", "models")
 }
 
+// FindOllamaModels walks the Ollama manifests directory and returns
+// vision models (those with a projector layer), with their blob paths.
 func FindOllamaModels() ([]ModelInfo, error) {
 	base := ollamaModelsDir()
 	manifestsDir := filepath.Join(base, "manifests")

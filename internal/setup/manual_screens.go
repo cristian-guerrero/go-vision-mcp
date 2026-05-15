@@ -1,3 +1,4 @@
+// Package setup — manual configuration wizard with advanced options.
 package setup
 
 import (
@@ -14,6 +15,9 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/hardware"
 )
 
+// ManualWizard implements an advanced Bubble Tea wizard that lets users
+// specify model source (download, LM Studio, Ollama, custom path) and
+// llama-server source (system PATH, download, custom path).
 type ManualWizard struct {
 	cfg *config.Config
 
@@ -39,6 +43,8 @@ type ManualWizard struct {
 	err       error
 }
 
+// RunManualWizard creates and runs the manual configuration TUI,
+// returning the final config (or nil if cancelled).
 func RunManualWizard() (*config.Config, error) {
 	w := NewManualWizard()
 	p := tea.NewProgram(w, tea.WithAltScreen())

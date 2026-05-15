@@ -13,6 +13,10 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/image"
 )
 
+// clipboardImageDataURIImpl uses a PowerShell script that invokes
+// System.Windows.Forms.Clipboard to retrieve an image. It tries:
+// GetImage → GetFileDropList → GetData("Bitmap"). WebP images from
+// file drop lists are converted to PNG via image.DecodeWebPToPNG.
 func clipboardImageDataURIImpl() (string, error) {
 	tmpDir := os.TempDir()
 	tmpPath := filepath.Join(tmpDir, "vision-mcp-clipboard.png")

@@ -7,6 +7,9 @@ import (
 	"unsafe"
 )
 
+// showMessageBox displays a Win32 MessageBoxW with MB_OK and
+// MB_ICONINFORMATION. Used when vision-mcp is double-clicked
+// (non-interactive) on Windows.
 func showMessageBox(title, msg string) {
 	user32 := syscall.NewLazyDLL("user32.dll")
 	messageBox := user32.NewProc("MessageBoxW")

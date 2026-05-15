@@ -10,6 +10,9 @@ import (
 	"strings"
 )
 
+// clipboardPollImage uses PowerShell to check for a new clipboard image.
+// It tries GetImage → GetFileDropList (image files and WebP) → GetData("Bitmap").
+// Returns nil when no image is in the clipboard (no error).
 func clipboardPollImage() (*PollResult, error) {
 	tmpDir := os.TempDir()
 	tmpPath := filepath.Join(tmpDir, "vision-mcp-clipboard-monitor.png")

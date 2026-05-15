@@ -1,3 +1,7 @@
+// Package mcp implements the MCP tool handlers. It defines the
+// vision-mcp tools (analyze_image, analyze_clipboard, clipboard
+// history) and manages communication with llama-server via the
+// OpenAI-compatible /v1/chat/completions endpoint.
 package mcp
 
 import (
@@ -19,6 +23,9 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/image"
 )
 
+// ToolHandler manages MCP tool registration, llama-server lifecycle
+// (lazy start / restart on demand), activity tracking for idle timeout,
+// and clipboard monitor integration.
 type ToolHandler struct {
 	llamaURL     string
 	customPrompt string
@@ -33,6 +40,8 @@ type ToolHandler struct {
 	stopFunc     func()
 }
 
+// NewToolHandler creates a ToolHandler. llamaURL may be empty and set
+// later; customPrompt is a fmt template like "Analyze: %s".
 func NewToolHandler(llamaURL, customPrompt string) *ToolHandler {
 	return &ToolHandler{
 		llamaURL:     llamaURL,
@@ -43,40 +52,51 @@ func NewToolHandler(llamaURL, customPrompt string) *ToolHandler {
 	}
 }
 
+// SetLoaded marks whether llama-server is currently running and ready.
 func (h *ToolHandler) SetLoaded(v bool) {
 	h.mu.Lock()
 	h.loaded = v
 	h.mu.Unlock()
 }
 
+// IsLoaded returns true if llama-server is currently running.
 func (h *ToolHandler) IsLoaded() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.loaded
 }
 
+// IdleTime returns the duration since the last tool call activity.
 func (h *ToolHandler) IdleTime() time.Duration {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return time.Since(h.lastActivity)
 }
 
+// SetRestartFunc registers a function that downloads models (if needed)
+// and starts/restarts llama-server. Called on-demand from chatCompletion.
 func (h *ToolHandler) SetRestartFunc(f func(context.Context) error) {
 	h.mu.Lock()
 	h.restartFunc = f
 	h.mu.Unlock()
 }
 
+// SetStopFunc registers a cleanup function that stops llama-server
+// and the clipboard monitor.
 func (h *ToolHandler) SetStopFunc(f func()) {
 	h.mu.Lock()
 	h.stopFunc = f
 	h.mu.Unlock()
 }
 
+// SetClipboardMonitor attaches the clipboard history monitor to the
+// handler so clipboard tools can access historical images.
 func (h *ToolHandler) SetClipboardMonitor(m *clipboard.Monitor) {
 	h.clipboardMon = m
 }
 
+// Stop calls the registered stop function (if any) to tear down
+// llama-server and clipboard monitor.
 func (h *ToolHandler) Stop() {
 	h.mu.Lock()
 	f := h.stopFunc
@@ -86,20 +106,27 @@ func (h *ToolHandler) Stop() {
 	}
 }
 
+// trackActivity records the current time so the idle timeout monitor
+// can detect inactivity.
 func (h *ToolHandler) trackActivity() {
 	h.mu.Lock()
 	h.lastActivity = time.Now()
 	h.mu.Unlock()
 }
 
+// SetLlamaURL sets the base URL for the llama-server API endpoint.
 func (h *ToolHandler) SetLlamaURL(url string) {
 	h.llamaURL = url
 }
 
+// SetReady signals that the handler is initialized and tools can
+// proceed (closes the ready channel).
 func (h *ToolHandler) SetReady() {
 	close(h.ready)
 }
 
+// waitReady blocks until SetReady has been called or the context is
+// cancelled. Tools call this before sending requests to llama-server.
 func (h *ToolHandler) waitReady(ctx context.Context) error {
 	select {
 	case <-h.ready:
@@ -109,6 +136,9 @@ func (h *ToolHandler) waitReady(ctx context.Context) error {
 	}
 }
 
+// RegisterTools registers all vision-mcp MCP tools on the given
+// server: analyze_image, analyze_clipboard, list_clipboard_history,
+// analyze_clipboard_image, analyze_clipboard_images.
 func (h *ToolHandler) RegisterTools(s *server.MCPServer) {
 	s.AddTool(analyzeImageTool(), h.handleAnalyzeImage)
 	s.AddTool(analyzeClipboardTool(), h.handleAnalyzeClipboard)
@@ -117,6 +147,8 @@ func (h *ToolHandler) RegisterTools(s *server.MCPServer) {
 	s.AddTool(analyzeClipboardImagesTool(), h.handleAnalyzeClipboardImages)
 }
 
+// analyzeImageTool defines the "analyze_image" MCP tool with
+// required "prompt" (string) and "image" (string) parameters.
 func analyzeImageTool() mcp.Tool {
 	return mcp.NewTool("analyze_image",
 		mcp.WithDescription("Ask a custom question about an image (identify objects, read text, count items, compare elements, etc). Provide an image via URL, local file path, or base64 data URI."),
@@ -131,6 +163,8 @@ func analyzeImageTool() mcp.Tool {
 	)
 }
 
+// analyzeClipboardTool defines the "analyze_clipboard" MCP tool with
+// a required "prompt" parameter (reads image from system clipboard).
 func analyzeClipboardTool() mcp.Tool {
 	return mcp.NewTool("analyze_clipboard",
 		mcp.WithDescription("Ask a custom question about the image currently in your system clipboard. No image parameter needed — it reads the clipboard automatically. Use this when the user asks a specific question about an image they just copied (e.g. 'what model is this?', 'read the text')."),
@@ -141,12 +175,16 @@ func analyzeClipboardTool() mcp.Tool {
 	)
 }
 
+// listClipboardHistoryTool defines a no-parameter tool that lists
+// all clipboard monitor entries.
 func listClipboardHistoryTool() mcp.Tool {
 	return mcp.NewTool("list_clipboard_history",
 		mcp.WithDescription("List all images captured by the clipboard monitor with their indices and timestamps. Use this to see what images have been copied to the clipboard since the monitor started. Requires clipboard_monitor_enabled=true in config."),
 	)
 }
 
+// analyzeClipboardImageTool defines a tool that analyzes a specific
+// image from clipboard history by index.
 func analyzeClipboardImageTool() mcp.Tool {
 	return mcp.NewTool("analyze_clipboard_image",
 		mcp.WithDescription("Ask a custom question about a specific image from the clipboard history, referenced by its index. Use list_clipboard_history first to see available images. Requires clipboard_monitor_enabled=true in config."),
@@ -161,6 +199,8 @@ func analyzeClipboardImageTool() mcp.Tool {
 	)
 }
 
+// analyzeClipboardImagesTool defines a tool that analyzes multiple
+// images from clipboard history by comma-separated indices.
 func analyzeClipboardImagesTool() mcp.Tool {
 	return mcp.NewTool("analyze_clipboard_images",
 		mcp.WithDescription("Ask a question about multiple images from the clipboard history at once. Provide comma-separated indices. Useful for comparing images (e.g. 'la primera imagen es el antes y la segunda el después'). Requires clipboard_monitor_enabled=true in config."),
@@ -175,10 +215,15 @@ func analyzeClipboardImagesTool() mcp.Tool {
 	)
 }
 
+// clipboardImageDataURI returns the current clipboard image as a
+// data:image/png;base64,... URI. Dispatches to platform-specific impl.
 func clipboardImageDataURI() (string, error) {
 	return clipboardImageDataURIImpl()
 }
 
+// handleAnalyzeClipboard reads the current clipboard image, falls back
+// to clipboard monitor history, and sends it to llama-server with the
+// user's prompt.
 func (h *ToolHandler) handleAnalyzeClipboard(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h.trackActivity()
 	prompt, _ := request.RequireString("prompt")
@@ -213,6 +258,8 @@ func (h *ToolHandler) handleAnalyzeClipboard(ctx context.Context, request mcp.Ca
 	return mcp.NewToolResultText(response), nil
 }
 
+// handleListClipboardHistory returns a text listing of all clipboard
+// history entries with their index, timestamp, and source.
 func (h *ToolHandler) handleListClipboardHistory(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h.trackActivity()
 	if h.clipboardMon == nil {
@@ -233,6 +280,8 @@ func (h *ToolHandler) handleListClipboardHistory(ctx context.Context, request mc
 	return mcp.NewToolResultText(strings.Join(lines, "\n")), nil
 }
 
+// handleAnalyzeClipboardImage retrieves a single clipboard history
+// image by index and analyzes it with the given prompt.
 func (h *ToolHandler) handleAnalyzeClipboardImage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h.trackActivity()
 	if h.clipboardMon == nil {
@@ -266,6 +315,9 @@ func (h *ToolHandler) handleAnalyzeClipboardImage(ctx context.Context, request m
 	return mcp.NewToolResultText(response), nil
 }
 
+// handleAnalyzeClipboardImages retrieves multiple clipboard history
+// images by comma-separated indices and sends them all to the vision
+// model in a single request (multi-image analysis).
 func (h *ToolHandler) handleAnalyzeClipboardImages(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h.trackActivity()
 	if h.clipboardMon == nil {
@@ -316,6 +368,9 @@ func (h *ToolHandler) handleAnalyzeClipboardImages(ctx context.Context, request 
 	return mcp.NewToolResultText(response), nil
 }
 
+// requestInt extracts an integer parameter from an MCP call request,
+// handling the fact that mcp-go v0.52 stores Arguments as any and
+// numbers may arrive as json.Number or float64.
 func requestInt(request mcp.CallToolRequest, key string) (int, error) {
 	raw := request.Params.Arguments
 	if raw == nil {
@@ -351,6 +406,9 @@ func requestInt(request mcp.CallToolRequest, key string) (int, error) {
 	return 0, fmt.Errorf("missing or invalid '%s'", key)
 }
 
+// handleAnalyzeImage resolves the image reference (URL, file path,
+// or data URI) to a base64 data URI, then sends it to llama-server
+// with the user's prompt.
 func (h *ToolHandler) handleAnalyzeImage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h.trackActivity()
 	prompt, _ := request.RequireString("prompt")
@@ -377,26 +435,34 @@ func (h *ToolHandler) handleAnalyzeImage(ctx context.Context, request mcp.CallTo
 	return mcp.NewToolResultText(response), nil
 }
 
+// chatRequest is the JSON body sent to llama-server's
+// /v1/chat/completions endpoint.
 type chatRequest struct {
 	Messages           []chatMessage  `json:"messages"`
 	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
 }
 
+// chatMessage represents a single message in the chat request
+// (role + content array).
 type chatMessage struct {
 	Role    string        `json:"role"`
 	Content []chatContent `json:"content"`
 }
 
+// chatContent is a single item within a message: either "text"
+// or "image_url".
 type chatContent struct {
 	Type     string    `json:"type"`
 	Text     string    `json:"text,omitempty"`
 	ImageURL *imageURL `json:"image_url,omitempty"`
 }
 
+// imageURL wraps the data URI or URL of an image for the vision model.
 type imageURL struct {
 	URL string `json:"url"`
 }
 
+// chatResponse maps the OpenAI-compatible response from llama-server.
 type chatResponse struct {
 	Choices []struct {
 		Message struct {
@@ -405,6 +471,9 @@ type chatResponse struct {
 	} `json:"choices"`
 }
 
+// chatCompletionMulti sends a vision request with multiple images
+// to llama-server. Automatically starts/restarts llama-server if not
+// loaded.
 func (h *ToolHandler) chatCompletionMulti(ctx context.Context, prompt string, dataURIs []string) (string, error) {
 	h.mu.Lock()
 	if !h.loaded && h.restartFunc != nil {
@@ -442,6 +511,8 @@ func (h *ToolHandler) chatCompletionMulti(ctx context.Context, prompt string, da
 	return h.sendChatRequest(ctx, body)
 }
 
+// chatCompletion sends a single-image vision request to llama-server.
+// Automatically starts/restarts llama-server if not loaded.
 func (h *ToolHandler) chatCompletion(ctx context.Context, prompt, dataURI string) (string, error) {
 	h.mu.Lock()
 	if !h.loaded && h.restartFunc != nil {
@@ -476,6 +547,9 @@ func (h *ToolHandler) chatCompletion(ctx context.Context, prompt, dataURI string
 	return h.sendChatRequest(ctx, body)
 }
 
+// sendChatRequest POSTs a JSON body to /v1/chat/completions with an
+// automatic retry on connection failure (attempts to restart
+// llama-server before the retry).
 func (h *ToolHandler) sendChatRequest(ctx context.Context, body []byte) (string, error) {
 	for attempt := 0; attempt < 2; attempt++ {
 		httpReq, err := http.NewRequestWithContext(ctx, "POST", h.llamaURL+"/v1/chat/completions", bytes.NewReader(body))

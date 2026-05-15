@@ -1,3 +1,6 @@
+// Package download handles model and binary downloads from HuggingFace
+// and GitHub releases with resume support, progress callbacks, and
+// archive extraction (zip/tar.gz/tar).
 package download
 
 import (
@@ -14,8 +17,16 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/config"
 )
 
+// ProgressFunc is a callback invoked during downloads with cumulative
+// bytes (downloaded, total). A call with downloaded==total indicates
+// completion.
 type ProgressFunc func(downloaded, total int64)
 
+// DownloadFile downloads a file with resume support. It writes to a
+// .tmp file and renames on success. If a .tmp already exists, it sends
+// a Range header to resume. When the server returns 416 (range not
+// satisfiable), it removes the stale .tmp and returns an error so the
+// caller can retry.
 func DownloadFile(url, destPath string, progress ProgressFunc) error {
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		return fmt.Errorf("create dest dir: %w", err)
@@ -109,6 +120,8 @@ func DownloadFile(url, destPath string, progress ProgressFunc) error {
 	return nil
 }
 
+// parseContentRange extracts the total size from a
+// "bytes N-M/TOTAL" Content-Range header.
 func parseContentRange(header string) int64 {
 	if header == "" {
 		return 0
@@ -121,6 +134,8 @@ func parseContentRange(header string) int64 {
 	return total
 }
 
+// progressWriter wraps an io.Writer and calls the ProgressFunc
+// periodically as bytes are written.
 type progressWriter struct {
 	offset   int64
 	total    int64
@@ -137,10 +152,15 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 	return n, nil
 }
 
+// HFDownloadURL builds a HuggingFace download URL for a given
+// repo and file: https://huggingface.co/{repo}/resolve/main/{file}.
 func HFDownloadURL(repoID, filename string) string {
 	return fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", repoID, filename)
 }
 
+// EnsureModels downloads the model GGUF and mmproj files if they do
+// not exist at the resolved paths. Skips download when the override
+// paths are set (user-supplied files).
 func EnsureModels(cfg *config.Config, onProgress ProgressFunc) error {
 	modelPath := cfg.ModelPath()
 	mmprojPath := cfg.MMProjPath()
@@ -195,6 +215,7 @@ func EnsureModels(cfg *config.Config, onProgress ProgressFunc) error {
 	return nil
 }
 
+// ModelInfo records metadata about a downloaded model for reference.
 type ModelInfo struct {
 	RepoID       string `json:"repo_id"`
 	ModelFile    string `json:"model_file"`
@@ -205,6 +226,8 @@ type ModelInfo struct {
 	Source       string `json:"source"`
 }
 
+// saveModelInfo writes a model-info.json next to the model file with
+// repo ID, quantization, download URL, and timestamp.
 func saveModelInfo(cfg *config.Config, modelPath, mmprojPath string) {
 	filename := filepath.Base(modelPath)
 	info := ModelInfo{
@@ -225,6 +248,9 @@ func saveModelInfo(cfg *config.Config, modelPath, mmprojPath string) {
 	os.WriteFile(infoPath, data, 0644)
 }
 
+// renameWithRetry attempts os.Rename up to 5 times with increasing
+// delays (200ms–1s). On Windows, antivirus or file-lock timing can
+// cause transient failures.
 func renameWithRetry(src, dst string) error {
 	var err error
 	for i := 0; i < 5; i++ {
@@ -236,6 +262,8 @@ func renameWithRetry(src, dst string) error {
 	return err
 }
 
+// FormatBytes converts a byte count to a human-readable string
+// (e.g. "1.2 GB", "540 MB").
 func FormatBytes(b int64) string {
 	const unit = 1024
 	if b < unit {

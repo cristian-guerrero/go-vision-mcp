@@ -1,3 +1,5 @@
+// Package installer copies the vision-mcp binary to ~/.go-mcp/vision/,
+// creates shell launchers, and adds the directory to PATH.
 package installer
 
 import (
@@ -7,6 +9,9 @@ import (
 	"runtime"
 )
 
+// Install copies the binary to installDir, creates a shell launcher
+// script (.cmd on Windows, shell wrapper on Unix), and adds installDir
+// to the user's PATH.
 func Install(installDir, binaryPath string) error {
 	if err := os.MkdirAll(installDir, 0755); err != nil {
 		return fmt.Errorf("create install dir: %w", err)
@@ -61,11 +66,13 @@ func createLauncherSH(installDir string) error {
 	return nil
 }
 
+// InstallDir returns the canonical install directory (~/.go-mcp/vision/).
 func InstallDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".go-mcp", "vision")
 }
 
+// IsInstalled checks whether the install directory exists.
 func IsInstalled() bool {
 	dir := InstallDir()
 	fi, err := os.Stat(dir)

@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-func ensureInPathWindows(installDir string) error { return nil }
-
+// ensureInPathUnix appends installDir to ~/.bashrc or ~/.zshrc so it is
+// added to PATH on login.
 func ensureInPathUnix(installDir string) error {
 	home, _ := os.UserHomeDir()
 	shellRC := filepath.Join(home, ".bashrc")

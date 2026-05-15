@@ -1,3 +1,4 @@
+// Package setup — download progress TUI screen.
 package setup
 
 import (
@@ -14,6 +15,8 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/hardware"
 )
 
+// downloadStage tracks the status of a single download stage (model or
+// llama-server).
 type downloadStage struct {
 	label  string
 	size   string
@@ -22,6 +25,8 @@ type downloadStage struct {
 	err    error
 }
 
+// downloadScreenModel is the Bubble Tea model that shows real-time
+// download progress bars for model files and llama-server.
 type downloadScreenModel struct {
 	cfg    *config.Config
 	stages []downloadStage
@@ -47,6 +52,9 @@ type progressUpdate struct {
 	err      error
 }
 
+// NewDownloadScreen creates a TUI download screen. It dynamically
+// adds stages: one for model files, and optionally one for llama-server
+// if it is not already present.
 func NewDownloadScreen(cfg *config.Config) *downloadScreenModel {
 	modelSz := modelSize(cfg)
 	modelLabel := "Model files (GGUF + mmproj)"
@@ -68,6 +76,8 @@ func NewDownloadScreen(cfg *config.Config) *downloadScreenModel {
 	}
 }
 
+// needsLlamaDownload checks whether llama-server already exists in the
+// configured directory, skipping the download stage if found.
 func needsLlamaDownload(cfg *config.Config) bool {
 	if cfg.LlamaServerMode == "custom" {
 		return false

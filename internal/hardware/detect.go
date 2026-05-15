@@ -1,3 +1,6 @@
+// Package hardware detects system resources (RAM, VRAM, GPU vendor,
+// free disk) and recommends optimal llama.cpp backends and
+// quantization levels.
 package hardware
 
 import (
@@ -11,6 +14,7 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 )
 
+// GPUInfo describes the detected GPU (if any).
 type GPUInfo struct {
 	Present     bool
 	Vendor      string
@@ -19,6 +23,7 @@ type GPUInfo struct {
 	BackendType string
 }
 
+// HardwareProfile holds the detected system resources.
 type HardwareProfile struct {
 	TotalRAM     uint64
 	AvailableRAM uint64
@@ -26,6 +31,8 @@ type HardwareProfile struct {
 	FreeDisk     uint64
 }
 
+// DetectHardware probes RAM (via gopsutil), free disk, and GPU
+// (via nvidia-smi on Windows/Linux, sysctl on Apple Silicon).
 func DetectHardware() (*HardwareProfile, error) {
 	hw := &HardwareProfile{}
 
@@ -46,6 +53,8 @@ func DetectHardware() (*HardwareProfile, error) {
 	return hw, nil
 }
 
+// detectGPU returns GPU info by running nvidia-smi (NVIDIA CUDA)
+// or checking sysctl for Apple Silicon (Metal).
 func detectGPU() GPUInfo {
 	gpu := GPUInfo{}
 
@@ -87,6 +96,7 @@ func detectGPU() GPUInfo {
 	return gpu
 }
 
+// isAppleSilicon returns true when running on Apple Silicon (M1+).
 func isAppleSilicon() bool {
 	cmd := exec.Command("sysctl", "-n", "machdep.cpu.brand_string")
 	out, err := cmd.Output()
@@ -96,6 +106,7 @@ func isAppleSilicon() bool {
 	return strings.Contains(string(out), "Apple")
 }
 
+// VulkanAvailable checks whether vulkaninfo is on PATH.
 func VulkanAvailable() bool {
 	_, err := exec.LookPath("vulkaninfo")
 	return err == nil

@@ -11,6 +11,9 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
+// ensureInPathWindows adds installDir to the user's PATH via the
+// HKCU\Environment registry key and broadcasts WM_SETTINGCHANGE so
+// running applications see the update.
 func ensureInPathWindows(installDir string) error {
 	k, err := registry.OpenKey(registry.CURRENT_USER, `Environment`, registry.QUERY_VALUE|registry.SET_VALUE)
 	if err != nil {
@@ -44,6 +47,8 @@ func ensureInPathWindows(installDir string) error {
 
 func ensureInPathUnix(installDir string) error { return nil }
 
+// broadcastEnvChange sends a WM_SETTINGCHANGE message to all top-level
+// windows so environment variable changes take effect without a reboot.
 func broadcastEnvChange() {
 	user32 := syscall.NewLazyDLL("user32.dll")
 	sendMessage := user32.NewProc("SendMessageTimeoutW")

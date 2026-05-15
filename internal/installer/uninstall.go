@@ -1,3 +1,4 @@
+// Package installer — uninstallation logic.
 package installer
 
 import (
@@ -7,6 +8,8 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/config"
 )
 
+// Uninstall removes the install directory and prints instructions for
+// manual PATH cleanup.
 func Uninstall() error {
 	installDir := InstallDir()
 

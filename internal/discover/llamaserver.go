@@ -1,3 +1,4 @@
+// Package discover — llama-server binary discovery.
 package discover
 
 import (
@@ -9,6 +10,9 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/config"
 )
 
+// FindSystemLlamaServer searches for a llama-server binary in PATH,
+// the install directory, the llama-cpp directory, and beside the
+// current executable.
 func FindSystemLlamaServer() (string, error) {
 	binName := "llama-server"
 	if runtime.GOOS == "windows" {

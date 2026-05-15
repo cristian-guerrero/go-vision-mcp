@@ -169,6 +169,18 @@ When the MCP client disconnects (stdin closes), `ServeStdio()` returns and `hand
 | `charmbracelet/lipgloss` | TUI styling |
 | `golang.org/x/sys` | Windows registry API |
 
+## Documentation Requirement
+
+All new functionality (exported and unexported types, functions, and packages) MUST be documented with Go doc comments above the declaration. Follow these rules:
+
+- **Package-level**: Every package must have a doc comment explaining its purpose (`package x // Package x does ...`).
+- **Exported types/functions**: MUST have a doc comment line starting with the identifier name (e.g., `// Foo does X`).
+- **Unexported types/functions**: Should also have doc comments when non-trivial.
+- **Comments must be in English**, clear, concise, and explain *what* the code does and *why*.
+- Run `go vet ./...` after writing doc comments to verify correctness.
+
+Failing to document new code will be treated as a lint error.
+
 ## Test Quirks
 
 - `mcp.Tools()` is unexported — test tool registration by checking no error

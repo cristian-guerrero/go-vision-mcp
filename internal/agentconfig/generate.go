@@ -1,3 +1,5 @@
+// Package agentconfig generates a markdown file with copy-paste-ready
+// MCP server JSON configuration for various AI coding agents.
 package agentconfig
 
 import (
@@ -9,6 +11,9 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/config"
 )
 
+// Generate writes a markdown file (default: ~/Desktop/vision-mcp-setup.md)
+// with MCP server JSON config blocks for Kilo Code, OpenCode, Zed Editor,
+// Claude Desktop, and PI Agent.
 func Generate(outputPath string) error {
 	if outputPath == "" {
 		home, _ := os.UserHomeDir()
