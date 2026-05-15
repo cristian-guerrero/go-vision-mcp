@@ -217,6 +217,14 @@ func quickSetup() {
 	if detected := config.DetectExistingModels(); detected != nil {
 		if detected.ModelPath != "" {
 			cfg.ModelPathOverride = detected.ModelPath
+			base := filepath.Base(detected.ModelPath)
+			base = strings.TrimSuffix(base, ".gguf")
+			repoParts := strings.Split(cfg.RepoID, "/")
+			modelName := strings.TrimSuffix(repoParts[len(repoParts)-1], "-GGUF")
+			quant := strings.TrimPrefix(base, modelName+"-")
+			if quant != "" {
+				cfg.Quantization = quant
+			}
 			fmt.Printf("Found existing model: %s\n", filepath.Base(detected.ModelPath))
 		}
 		if detected.MMProjPath != "" {
@@ -542,7 +550,7 @@ func resolveLlamaServer(cfg *config.Config) (binPath, newPath string, err error)
 	switch mode {
 	case "auto":
 		log.Printf("Downloading llama-server...")
-		binPath, err = download.EnsureLlamaBinary(cfg.LlamaBackend, config.InstallDir(), downloadProgress("llama-server"))
+		binPath, err = download.EnsureLlamaBinary(cfg.LlamaBackend, cfg.LlamaServerDir, downloadProgress("llama-server"))
 		if err != nil {
 			return "", "", err
 		}
@@ -571,7 +579,7 @@ func resolveLlamaServer(cfg *config.Config) (binPath, newPath string, err error)
 			return found, "", nil
 		}
 		log.Printf("llama-server not found, downloading...")
-		binPath, downloadErr := download.EnsureLlamaBinary(cfg.LlamaBackend, config.InstallDir(), downloadProgress("llama-server"))
+		binPath, downloadErr := download.EnsureLlamaBinary(cfg.LlamaBackend, cfg.LlamaServerDir, downloadProgress("llama-server"))
 		if downloadErr != nil {
 			return "", "", downloadErr
 		}

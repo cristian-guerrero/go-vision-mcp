@@ -17,6 +17,7 @@ type Config struct {
 	LlamaBackend            string `json:"llama_backend"`
 	LlamaBin                string `json:"llama_bin"`
 	ModelsDir               string `json:"models_dir"`
+	LlamaServerDir          string `json:"llama_server_dir"`
 	Port                    int    `json:"port"`
 	NCtx                    int    `json:"n_ctx"`
 	NGL                     int    `json:"ngl"`
@@ -44,6 +45,7 @@ func DefaultConfig() Config {
 		LlamaBackend:            "cuda",
 		LlamaBin:                llamaBinDefault(),
 		ModelsDir:               DefaultModelsDir(),
+		LlamaServerDir:          DefaultLlamaServerDir(),
 		Port:                    8001,
 		NCtx:                    8192,
 		NGL:                     999,
@@ -54,7 +56,7 @@ func DefaultConfig() Config {
 		KvCacheTypeK:            "q4_0",
 		KvCacheTypeV:            "q4_0",
 		IdleTimeout:             5,
-		ClipboardMonitorEnabled: false,
+		ClipboardMonitorEnabled: true,
 		ClipboardHistoryLimit:   5,
 		ClipboardCacheDir:       "",
 	}
@@ -121,7 +123,13 @@ func llamaBinDefault() string {
 }
 
 func DefaultModelsDir() string {
-	return filepath.Join(InstallDir(), "models")
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".go-mcp", "models", "llm")
+}
+
+func DefaultLlamaServerDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".go-mcp", "llama-cpp")
 }
 
 func (c *Config) ModelDir() string {

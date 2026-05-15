@@ -145,9 +145,6 @@ func EnsureModels(cfg *config.Config, onProgress ProgressFunc) error {
 	modelPath := cfg.ModelPath()
 	mmprojPath := cfg.MMProjPath()
 
-	os.Remove(modelPath + ".tmp")
-	os.Remove(mmprojPath + ".tmp")
-
 	if cfg.ModelPathOverride != "" {
 		if _, err := os.Stat(cfg.ModelPathOverride); err != nil {
 			return fmt.Errorf("model file not found: %s", cfg.ModelPathOverride)
@@ -166,6 +163,8 @@ func EnsureModels(cfg *config.Config, onProgress ProgressFunc) error {
 		if onProgress != nil {
 			onProgress(0, 0)
 		}
+	} else {
+		os.Remove(modelPath + ".tmp")
 	}
 
 	downloadedMMProj := false
@@ -184,6 +183,8 @@ func EnsureModels(cfg *config.Config, onProgress ProgressFunc) error {
 			if onProgress != nil {
 				onProgress(0, 0)
 			}
+		} else {
+			os.Remove(mmprojPath + ".tmp")
 		}
 	}
 

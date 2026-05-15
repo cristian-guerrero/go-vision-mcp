@@ -25,6 +25,12 @@ func FindSystemLlamaServer() (string, error) {
 		return candidate, nil
 	}
 
+	llamaDir := config.DefaultLlamaServerDir()
+	candidate = filepath.Join(llamaDir, binName)
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate, nil
+	}
+
 	exe, err := os.Executable()
 	if err == nil {
 		candidate = filepath.Join(filepath.Dir(exe), binName)

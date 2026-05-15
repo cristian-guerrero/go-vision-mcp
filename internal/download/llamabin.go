@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/vision-mcp/internal/config"
 )
 
 type ReleaseAsset struct {
@@ -118,12 +120,11 @@ func osKey() string {
 }
 
 func llamaServerDir(destDir string) string {
-	return filepath.Join(destDir, "llama-server")
+	return destDir
 }
 
 func LlamaServerDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".go-mcp", "vision", "llama-server")
+	return config.DefaultLlamaServerDir()
 }
 
 func EnsureLlamaBinary(backend, destDir string, progress ProgressFunc) (string, error) {
