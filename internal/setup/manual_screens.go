@@ -17,10 +17,11 @@ import (
 type ManualWizard struct {
 	cfg *config.Config
 
-	step       int
-	totalSteps int
-	cursorIdx  int
-	stepCount  int
+	step          int
+	totalSteps    int
+	cursorIdx     int
+	stepCount     int
+	selectedModel int
 
 	modelSource     string
 	modelPath       string
@@ -200,11 +201,18 @@ func (w *ManualWizard) textSubmit() {
 }
 
 func (w *ManualWizard) hasOptions() bool {
+	if w.step == 1 && w.modelSource == "download" {
+		return true
+	}
 	return w.step == 0 || w.step == 2 || w.step == 5
 }
 
 func (w *ManualWizard) handleSelection(idx int) {
 	switch w.step {
+	case 1:
+		if w.modelSource == "download" && idx >= 0 && idx < len(AvailableModels) {
+			w.selectedModel = idx
+		}
 	case 5:
 		w.clipMonOn = idx == 0
 	}
@@ -247,7 +255,12 @@ func (w *ManualWizard) advanceStep() {
 			return
 		}
 	case 1:
-		if len(w.lmModels) > 0 && w.cursorIdx >= 0 && w.cursorIdx < len(w.lmModels) {
+		if w.modelSource == "download" {
+			if w.cursorIdx >= 0 && w.cursorIdx < len(AvailableModels) {
+				w.cfg.RepoID = AvailableModels[w.cursorIdx].RepoID
+				w.selectedModel = w.cursorIdx
+			}
+		} else if len(w.lmModels) > 0 && w.cursorIdx >= 0 && w.cursorIdx < len(w.lmModels) {
 			m := w.lmModels[w.cursorIdx]
 			w.modelPath = m.Path
 			if m.HasMMProj {
@@ -492,7 +505,9 @@ func (w *ManualWizard) viewModelSelection() string {
 	var s strings.Builder
 
 	if w.modelSource == "download" {
-		s.WriteString("Selected: Download from Hugging Face\n\n")
+		s.WriteString("Select a model to download from Hugging Face:\n\n")
+
+		w.stepCount = len(AvailableModels)
 
 		hw, _ := hardware.DetectHardware()
 		recommended := config.DefaultConfig()
@@ -500,11 +515,24 @@ func (w *ManualWizard) viewModelSelection() string {
 			recommended.Quantization = hardware.RecommendQuantization(hw)
 		}
 
-		w.stepCount = 1
+		for i, m := range AvailableModels {
+			bullet := "  ○"
+			name := fmt.Sprintf("%s (%s)", m.RepoID, m.Params)
+			desc := m.Desc
+			extra := fmt.Sprintf("(%s)", recommended.Quantization)
 
-		s.WriteString(fmt.Sprintf("Repository: %s\n", w.cfg.RepoID))
-		s.WriteString(fmt.Sprintf("Quantization: %s\n", recommended.Quantization))
-		s.WriteString(fmt.Sprintf("\n  %s Press Enter to continue.\n", ArrowStyle))
+			if i == w.cursorIdx {
+				bullet = CursorStyle.String()
+				name = SelectedStyle.Render(name)
+				if i == DefaultModelIndex() {
+					extra += " " + BadgeRecommended.String()
+				}
+			} else if i == DefaultModelIndex() {
+				extra += " " + BadgeRecommended.String()
+			}
+
+			s.WriteString(fmt.Sprintf("%s %s  %s  %s\n", bullet, name, DimStyle.Render(desc), DimStyle.Render(extra)))
+		}
 		return s.String()
 	}
 

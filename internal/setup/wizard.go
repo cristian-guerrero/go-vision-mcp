@@ -2,7 +2,6 @@ package setup
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,17 +12,18 @@ import (
 )
 
 type Wizard struct {
-	hw          *hardware.HardwareProfile
-	cfg         *config.Config
-	step        int
-	totalSteps  int
-	stepCount   int
-	cursorIdx   int
-	backend     string
-	quant       string
-	installDir  string
-	downloadDir string
-	clipMonOn   bool
+	hw            *hardware.HardwareProfile
+	cfg           *config.Config
+	step          int
+	totalSteps    int
+	stepCount     int
+	cursorIdx     int
+	selectedModel int
+	backend       string
+	quant         string
+	installDir    string
+	downloadDir   string
+	clipMonOn     bool
 
 	done      bool
 	cancelled bool
@@ -40,16 +40,17 @@ func NewWizard() *Wizard {
 	}
 
 	return &Wizard{
-		hw:          hw,
-		cfg:         &cfg,
-		step:        0,
-		totalSteps:  5,
-		stepCount:   1,
-		backend:     cfg.LlamaBackend,
-		quant:       cfg.Quantization,
-		installDir:  config.InstallDir(),
-		downloadDir: config.InstallDir(),
-		clipMonOn:   false,
+		hw:            hw,
+		cfg:           &cfg,
+		step:          0,
+		totalSteps:    5,
+		stepCount:     1,
+		selectedModel: DefaultModelIndex(),
+		backend:       cfg.LlamaBackend,
+		quant:         cfg.Quantization,
+		installDir:    config.InstallDir(),
+		downloadDir:   config.InstallDir(),
+		clipMonOn:     false,
 	}
 }
 
@@ -100,9 +101,9 @@ func (w *Wizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "enter":
 			if w.step == w.totalSteps-1 {
+				w.cfg.RepoID = AvailableModels[w.selectedModel].RepoID
 				w.cfg.Quantization = w.quant
 				w.cfg.LlamaBackend = w.backend
-				w.cfg.ModelsDir = filepath.Join(w.downloadDir, "models")
 				w.cfg.ClipboardMonitorEnabled = w.clipMonOn
 				w.done = true
 				return w, tea.Quit
@@ -119,24 +120,24 @@ func (w *Wizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (w *Wizard) hasOptions() bool {
-	return w.step == 0 || w.step == 1 || w.step == 2 || w.step == 3
+	return w.step >= 0 && w.step <= 3
 }
 
 func (w *Wizard) handleSelection(idx int) {
 	switch w.step {
 	case 0:
+		if idx >= 0 && idx < len(AvailableModels) {
+			w.selectedModel = idx
+		}
+	case 1:
 		backends := []string{"cuda", "cpu", "vulkan", "metal"}
 		if idx >= 0 && idx < len(backends) {
 			w.backend = backends[idx]
 		}
-	case 1:
+	case 2:
 		quants := hardware.AvailableQuantizations()
 		if idx >= 0 && idx < len(quants) {
 			w.quant = quants[idx].Name
-		}
-	case 2:
-		if idx == 1 {
-			w.installDir = "."
 		}
 	case 3:
 		w.clipMonOn = idx == 0
@@ -155,11 +156,11 @@ func (w *Wizard) View() string {
 
 	switch w.step {
 	case 0:
-		s.WriteString(w.viewBackend())
+		s.WriteString(w.viewModelSelect())
 	case 1:
-		s.WriteString(w.viewQuantization())
+		s.WriteString(w.viewBackend())
 	case 2:
-		s.WriteString(w.viewInstallPath())
+		s.WriteString(w.viewQuantization())
 	case 3:
 		s.WriteString(w.viewClipboardMonitor())
 	case 4:
@@ -188,11 +189,11 @@ func (w *Wizard) footer() string {
 func (w *Wizard) stepTitle() string {
 	switch w.step {
 	case 0:
-		return "Select Backend"
+		return "Select Model"
 	case 1:
-		return "Select Quantization"
+		return "Select Backend"
 	case 2:
-		return "Installation Path"
+		return "Select Quantization"
 	case 3:
 		return "Clipboard Monitoring"
 	case 4:
@@ -230,6 +231,34 @@ func (w *Wizard) viewHardware() string {
 	s.WriteString(fmt.Sprintf("  %s Recommended quantization: %s\n", ArrowStyle, HighlightStyle.Render(w.cfg.Quantization)))
 
 	return BorderStyle.Render(s.String())
+}
+
+func (w *Wizard) viewModelSelect() string {
+	var s strings.Builder
+	s.WriteString("Select vision model:\n\n")
+
+	w.stepCount = len(AvailableModels)
+
+	for i, m := range AvailableModels {
+		bullet := "  ○"
+		name := fmt.Sprintf("%s (%s)", m.RepoID, m.Params)
+		desc := m.Desc
+		extra := ""
+
+		if i == w.cursorIdx {
+			bullet = CursorStyle.String()
+			name = SelectedStyle.Render(name)
+			if i == DefaultModelIndex() {
+				extra = " " + BadgeRecommended.String()
+			}
+		} else if i == DefaultModelIndex() {
+			extra = " " + BadgeRecommended.String()
+		}
+
+		s.WriteString(fmt.Sprintf("%s %s  %s%s\n", bullet, name, DimStyle.Render(desc), extra))
+	}
+
+	return s.String()
 }
 
 func (w *Wizard) viewBackend() string {
@@ -303,42 +332,6 @@ func (w *Wizard) viewQuantization() string {
 	return s.String()
 }
 
-func (w *Wizard) viewInstallPath() string {
-	var s strings.Builder
-	s.WriteString("Installation directory:\n\n")
-	s.WriteString(fmt.Sprintf("  %s\n\n", InfoStyle.Render(w.installDir)))
-
-	s.WriteString("The binary, models, and config will be stored here.\n")
-	s.WriteString(fmt.Sprintf("Estimated space needed with %s: ~3-4 GB\n\n", HighlightStyle.Render(w.quant)))
-
-	s.WriteString("Add to PATH?\n\n")
-
-	type pathOption struct {
-		label string
-		desc  string
-	}
-	options := []pathOption{
-		{"Yes", fmt.Sprintf("Install to %s (add to PATH)", w.installDir)},
-		{"No", "Portable mode (config in current directory)"},
-	}
-
-	w.stepCount = len(options)
-
-	for i, opt := range options {
-		bullet := "  ○"
-		label := opt.label
-
-		if i == w.cursorIdx {
-			bullet = CursorStyle.String()
-			label = SelectedStyle.Render(label)
-		}
-
-		s.WriteString(fmt.Sprintf("%s %s  %s\n", bullet, label, DimStyle.Render(opt.desc)))
-	}
-
-	return s.String()
-}
-
 func (w *Wizard) viewClipboardMonitor() string {
 	var s strings.Builder
 	s.WriteString("Enable Clipboard Monitoring?\n\n")
@@ -378,7 +371,6 @@ func (w *Wizard) viewClipboardMonitor() string {
 func (w *Wizard) viewSummary() string {
 	w.cfg.Quantization = w.quant
 	w.cfg.LlamaBackend = w.backend
-	w.cfg.ModelsDir = filepath.Join(w.downloadDir, "models")
 
 	var s strings.Builder
 	s.WriteString("Configuration Summary\n\n")
@@ -388,8 +380,11 @@ func (w *Wizard) viewSummary() string {
 		clipMonStatus = "Enabled"
 	}
 
+	modelLabel := AvailableModels[w.selectedModel].RepoID
+
 	s.WriteString(Box("Summary",
-		fmt.Sprintf("Backend:      %s\nQuantization: %s\nInstall dir:  %s\nClipboard:    %s\n",
+		fmt.Sprintf("Model:        %s\nBackend:      %s\nQuantization: %s\nInstall dir:  %s\nClipboard:    %s\n",
+			HighlightStyle.Render(modelLabel),
 			HighlightStyle.Render(w.backend),
 			HighlightStyle.Render(w.quant),
 			InfoStyle.Render(w.installDir),
@@ -407,9 +402,9 @@ func (w *Wizard) viewSummary() string {
 
 	s.WriteString(fmt.Sprintf("\n  %s First run will download:\n", ArrowStyle))
 	if modelSize != "" {
-		s.WriteString(fmt.Sprintf("    - Model (~%s): %s\n", modelSize, HighlightStyle.Render(config.DefaultConfig().RepoID)))
+		s.WriteString(fmt.Sprintf("    - Model (~%s): %s\n", modelSize, HighlightStyle.Render(modelLabel)))
 	} else {
-		s.WriteString(fmt.Sprintf("    - Model: %s\n", HighlightStyle.Render(config.DefaultConfig().RepoID)))
+		s.WriteString(fmt.Sprintf("    - Model: %s\n", HighlightStyle.Render(modelLabel)))
 	}
 
 	if _, err := discover.FindSystemLlamaServer(); err != nil {

@@ -80,6 +80,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	args = append(args, "--jinja")
 	args = append(args, "--reasoning", "off")
+	args = append(args, "--no-webui")
 
 	log.Printf("Executing: %s %v", binary, args)
 

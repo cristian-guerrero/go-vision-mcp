@@ -39,7 +39,7 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		RepoID:                  "unsloth/Qwen3.5-4B-GGUF",
+		RepoID:                  "unsloth/Qwen3-VL-4B-Instruct-GGUF",
 		Quantization:            "IQ4_XS",
 		MMProj:                  "mmproj-F16.gguf",
 		LlamaBackend:            "cuda",

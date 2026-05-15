@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/bubbletea"
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/cristian-guerrero/go-vision-mcp/internal/agentconfig"
@@ -278,9 +279,15 @@ func runWizardCmd() {
 			}
 		}
 
-		fmt.Printf("Run 'vision-mcp' to start the server.\n")
-
 		promptMCPSetup()
+
+		ds := setup.NewDownloadScreen(cfg)
+		p := tea.NewProgram(ds)
+		if _, err := p.Run(); err != nil {
+			log.Printf("Warning: download screen error: %v", err)
+		}
+
+		fmt.Printf("\nSetup complete! Run 'vision-mcp' to start the server.\n")
 	}
 }
 

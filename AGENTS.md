@@ -32,6 +32,14 @@ main()
 │   ├── if not interactive → runServer() directly (MCP client)
 │   ├── if interactive + no config → showWelcomeMenu() (Bubble Tea TUI)
 │   └── if interactive + config exists → runServer()
+
+runWizardCmd() flow:
+├── RunWizard() TUI (5 steps: Model → Backend → Quantization → Clipboard → Summary)
+├── cfg.Save()
+├── installer.Install()
+├── promptMCPSetup() — configure agents (Kilo Code, OpenCode, etc.)
+├── NewDownloadScreen() — TUI with progress bars for model/mmproj/llama-server
+└── "Setup complete!" message
 ```
 
 ### runServer() — Async Init
@@ -104,17 +112,17 @@ Args passed to llama-server:
 
 - `-ctk q4_0 -ctv q4_0` — KV cache quantization to 4-bit
 - `-fa on` — Flash attention (ignored if unsupported)
-- `--chat-template-kwargs {"enable_thinking": false}` — disable thinking mode
+- `--jinja` — Use Jinja chat template
+- `--no-webui` — Disable web UI
+- `--reasoning off` — Disable thinking/reasoning mode
 
 ## Config Fields
 
 All fields are emitted in config.json even when empty, so users can manually edit:
 
-All fields are emitted in config.json even when empty, so users can manually edit:
-
 ```json
 {
-  "repo_id": "unsloth/Qwen3.5-4B-GGUF",
+  "repo_id": "unsloth/Qwen3-VL-4B-Instruct-GGUF",
   "quantization": "Q4_K_M",
   "model_path": "/custom/path/model.gguf",
   "mmproj_path": "/custom/path/mmproj.gguf",

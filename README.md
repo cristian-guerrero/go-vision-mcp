@@ -18,9 +18,9 @@ A Go-based MCP (Model Context Protocol) server that enables vision analysis for 
 
 ## System Requirements
 
-Requirements depend on the selected model and quantization. The default model is **Qwen3.5-4B** (~4B parameters). The tool **automatically detects your hardware** and selects the optimal quantization — no manual tuning needed.
+Requirements depend on the selected model and quantization. The default model is **Qwen3-VL-4B-Instruct-GGUF** (~4B parameters). The TUI wizard lets you choose between multiple models. The tool **automatically detects your hardware** and selects the optimal quantization — no manual tuning needed.
 
-### Guidance by VRAM (default model: Qwen3.5-4B)
+### Guidance by VRAM (default model: Qwen3-VL-4B-Instruct)
 
 | VRAM | Recommended Quantization | Approx. Size | Quality |
 |------|------------------------|-------------|---------|
@@ -73,12 +73,12 @@ Configuration is stored at `~/.go-mcp/vision/config.json` (Windows: `%USERPROFIL
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `repo_id` | `unsloth/Qwen3.5-4B-GGUF` | HuggingFace repo for GGUF model |
+| `repo_id` | `unsloth/Qwen3-VL-4B-Instruct-GGUF` | HuggingFace repo for GGUF model |
 | `quantization` | `UD-IQ3_XXS` | Quantization variant to download |
 | `mmproj` | `mmproj-F16.gguf` | Multimodal projector filename in the repo |
 | `llama_backend` | `cuda` | Compute backend: `cuda`, `cpu`, `vulkan`, `metal` |
 | `llama_bin` | `llama-server.exe` | llama-server binary name |
-| `models_dir` | `~/.go-mcp/vision/models` | Directory for downloaded models |
+| `models_dir` | `~/.go-mcp/models/llm` | Directory for downloaded models |
 | `port` | `8001` | Port for llama-server |
 | `n_ctx` | `8192` | Context size (tokens) |
 | `ngl` | `999` | GPU layers (-ngl). 0 = CPU only |
@@ -250,17 +250,37 @@ go fmt ./...
 
 ## Changing Models
 
-To use a different GGUF model (e.g., Llama, Mistral), edit `config.json`:
+You can choose from three models during `--configure` or `--manual` setup:
+
+| Model | Params | Description |
+|-------|--------|-------------|
+| `unsloth/Qwen3-VL-4B-Instruct-GGUF` | 4B | VL 4B — good quality and speed (default) |
+| `unsloth/Qwen3.5-4B-GGUF` | 4B | Qwen3.5 4B — proven, good speed |
+| `unsloth/Qwen3-VL-2B-Instruct-1M-GGUF` | 2B | VL 2B 1M context — faster, less VRAM |
+
+To change models manually, edit `config.json`:
 
 ```json
 {
-  "repo_id": "other-user/other-model-GGUF",
+  "repo_id": "unsloth/Qwen3-VL-4B-Instruct-GGUF",
   "quantization": "Q4_K_M",
   "mmproj": "mmproj-F16.gguf"
 }
 ```
 
 The server will automatically download the new model files on next start. Make sure the mmproj file is correct for your model architecture.
+
+## Setup Wizard Flow
+
+The `--configure` wizard guides you through these steps:
+
+1. **Select Model** — choose from available vision models
+2. **Select Backend** — CUDA, CPU, Vulkan, or Metal
+3. **Select Quantization** — quality/size tradeoff based on your hardware
+4. **Clipboard Monitoring** — enable/disable clipboard history
+5. **Summary** — review and confirm
+6. **Agent Setup** — configure MCP for detected agents (Kilo Code, OpenCode, etc.)
+7. **Download Screen** — downloads model files and llama-server with progress bars (skips existing files)
 
 ## Troubleshooting
 

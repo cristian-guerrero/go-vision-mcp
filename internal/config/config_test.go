@@ -11,8 +11,8 @@ import (
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	if cfg.RepoID != "unsloth/Qwen3.5-4B-GGUF" {
-		t.Errorf("expected unsloth/Qwen3.5-4B-GGUF, got %s", cfg.RepoID)
+	if cfg.RepoID != "unsloth/Qwen3-VL-4B-Instruct-GGUF" {
+		t.Errorf("expected unsloth/Qwen3-VL-4B-Instruct-GGUF, got %s", cfg.RepoID)
 	}
 	if cfg.Quantization != "IQ4_XS" {
 		t.Errorf("expected IQ4_XS, got %s", cfg.Quantization)
@@ -65,8 +65,8 @@ func TestModelPath(t *testing.T) {
 	cfg.Quantization = "IQ4_XS"
 
 	path := cfg.ModelPath()
-	if !strings.HasSuffix(path, "Qwen3.5-4B-IQ4_XS.gguf") {
-		t.Errorf("expected path ending with Qwen3.5-4B-IQ4_XS.gguf, got %s", path)
+	if !strings.HasSuffix(path, "Qwen3-VL-4B-Instruct-IQ4_XS.gguf") {
+		t.Errorf("expected path ending with Qwen3-VL-4B-Instruct-IQ4_XS.gguf, got %s", path)
 	}
 }
 
@@ -96,6 +96,7 @@ func TestModelNameFromRepo(t *testing.T) {
 		expected string
 	}{
 		{"unsloth/Qwen3.5-4B-GGUF", "Qwen3.5-4B"},
+		{"unsloth/Qwen3-VL-4B-Instruct-GGUF", "Qwen3-VL-4B-Instruct"},
 		{"unsloth/Llama-3.2-11B-Vision-GGUF", "Llama-3.2-11B-Vision"},
 		{"bartowski/Qwen2.5-VL-7B-Instruct-GGUF", "Qwen2.5-VL-7B-Instruct"},
 	}
