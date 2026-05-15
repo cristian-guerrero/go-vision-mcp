@@ -67,7 +67,6 @@ When `idle_timeout > 0` (default: 5 minutes), a background goroutine monitors to
 | Tool | Params | Description |
 |------|--------|-------------|
 | `analyze_image` | prompt (required), image (required) | Analyze an image with custom prompt |
-| `describe_image` | image (required), detail (optional) | Describe an image |
 
 | `describe_clipboard` | detail (optional) | Describe the image in the clipboard |
 

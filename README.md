@@ -113,7 +113,6 @@ When `model_path`, `mmproj_path`, or `llama_server_path` are set to a non-empty 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
 | `analyze_image` | `prompt` (required), `image` (required) | Analyze an image with a custom prompt |
-| `describe_image` | `image` (required), `detail` (optional) | Describe an image (brief/detailed) |
 
 ### Current Clipboard
 
@@ -132,9 +131,7 @@ History is cleared when the server stops. Cached files are deleted; original fil
 |------|-----------|-------------|
 | `list_clipboard_history` | — | List all cached clipboard images with index, timestamp, and source path |
 | `analyze_clipboard_image` | `index` (required), `prompt` (required) | Ask a custom question about a specific cached image by index |
-| `describe_clipboard_image` | `index` (required), `detail` (optional) | Describe a specific cached image by index |
 | `analyze_clipboard_images` | `indices` (required), `prompt` (required) | Analyze multiple cached images at once (comma-separated indices, e.g. `"1,2,3"`) |
-| `clear_clipboard_history` | — | Purge all cached clipboard images |
 
 #### Multi-image example workflow
 

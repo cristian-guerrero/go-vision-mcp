@@ -111,14 +111,11 @@ func (h *ToolHandler) waitReady(ctx context.Context) error {
 
 func (h *ToolHandler) RegisterTools(s *server.MCPServer) {
 	s.AddTool(analyzeImageTool(), h.handleAnalyzeImage)
-	s.AddTool(describeImageTool(), h.handleDescribeImage)
 	s.AddTool(describeClipboardTool(), h.handleDescribeClipboard)
 	s.AddTool(analyzeClipboardTool(), h.handleAnalyzeClipboard)
 	s.AddTool(listClipboardHistoryTool(), h.handleListClipboardHistory)
 	s.AddTool(analyzeClipboardImageTool(), h.handleAnalyzeClipboardImage)
-	s.AddTool(describeClipboardImageTool(), h.handleDescribeClipboardImage)
 	s.AddTool(analyzeClipboardImagesTool(), h.handleAnalyzeClipboardImages)
-	s.AddTool(clearClipboardHistoryTool(), h.handleClearClipboardHistory)
 }
 
 func analyzeImageTool() mcp.Tool {
@@ -131,19 +128,6 @@ func analyzeImageTool() mcp.Tool {
 		mcp.WithString("image",
 			mcp.Required(),
 			mcp.Description("The image to analyze: URL (http/https), absolute local file path, or data:image/...;base64,... URI"),
-		),
-	)
-}
-
-func describeImageTool() mcp.Tool {
-	return mcp.NewTool("describe_image",
-		mcp.WithDescription("Get a full natural-language description of what an image shows: objects, people, text, colors, layout, and scene. Use this when you just want to know what's in the image, not ask a specific question. Provide the image via URL, local file path, or base64 data URI."),
-		mcp.WithString("image",
-			mcp.Required(),
-			mcp.Description("The image to describe: URL (http/https), absolute local file path, or data:image/...;base64,... URI"),
-		),
-		mcp.WithString("detail",
-			mcp.Description("Level of detail: 'brief' (1-2 sentences) or 'detailed' (full description). Defaults to detailed."),
 		),
 	)
 }
@@ -187,19 +171,6 @@ func analyzeClipboardImageTool() mcp.Tool {
 	)
 }
 
-func describeClipboardImageTool() mcp.Tool {
-	return mcp.NewTool("describe_clipboard_image",
-		mcp.WithDescription("Get a full description of a specific image from the clipboard history by its index. Use list_clipboard_history first to see available images. Requires clipboard_monitor_enabled=true in config."),
-		mcp.WithNumber("index",
-			mcp.Required(),
-			mcp.Description("The index of the image in the clipboard history."),
-		),
-		mcp.WithString("detail",
-			mcp.Description("Level of detail: 'brief' (1-2 sentences) or 'detailed' (full description). Defaults to detailed."),
-		),
-	)
-}
-
 func analyzeClipboardImagesTool() mcp.Tool {
 	return mcp.NewTool("analyze_clipboard_images",
 		mcp.WithDescription("Ask a question about multiple images from the clipboard history at once. Provide comma-separated indices. Useful for comparing images (e.g. 'la primera imagen es el antes y la segunda el después'). Requires clipboard_monitor_enabled=true in config."),
@@ -211,12 +182,6 @@ func analyzeClipboardImagesTool() mcp.Tool {
 			mcp.Required(),
 			mcp.Description("What to ask about the images. You can reference them by position (e.g. 'Image 1 is the BEFORE, Image 2 is the AFTER. What changed?')."),
 		),
-	)
-}
-
-func clearClipboardHistoryTool() mcp.Tool {
-	return mcp.NewTool("clear_clipboard_history",
-		mcp.WithDescription("Clear all cached images from the clipboard monitor history. Requires clipboard_monitor_enabled=true in config."),
 	)
 }
 
@@ -328,41 +293,6 @@ func (h *ToolHandler) handleAnalyzeClipboardImage(ctx context.Context, request m
 	return mcp.NewToolResultText(response), nil
 }
 
-func (h *ToolHandler) handleDescribeClipboardImage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.trackActivity()
-	if h.clipboardMon == nil {
-		return mcp.NewToolResultError("Clipboard monitor not enabled. Set clipboard_monitor_enabled=true in config."), nil
-	}
-
-	index, err := requestInt(request, "index")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid index: %v", err)), nil
-	}
-
-	detail := request.GetString("detail", "detailed")
-
-	if err := h.waitReady(ctx); err != nil {
-		return mcp.NewToolResultError("llama-server not ready yet"), nil
-	}
-
-	dataURI, err := h.clipboardMon.GetImage(index)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	prompt := "Describe this image in detail, including all objects, text, colors, layout, and any notable elements."
-	if detail == "brief" {
-		prompt = "Briefly describe this image in 1-2 sentences."
-	}
-
-	response, err := h.chatCompletion(ctx, prompt, dataURI)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Vision model error: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(response), nil
-}
-
 func (h *ToolHandler) handleAnalyzeClipboardImages(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h.trackActivity()
 	if h.clipboardMon == nil {
@@ -411,15 +341,6 @@ func (h *ToolHandler) handleAnalyzeClipboardImages(ctx context.Context, request 
 	}
 
 	return mcp.NewToolResultText(response), nil
-}
-
-func (h *ToolHandler) handleClearClipboardHistory(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.trackActivity()
-	if h.clipboardMon == nil {
-		return mcp.NewToolResultError("Clipboard monitor not enabled. Set clipboard_monitor_enabled=true in config."), nil
-	}
-	h.clipboardMon.ClearHistory()
-	return mcp.NewToolResultText("Clipboard history cleared."), nil
 }
 
 func requestInt(request mcp.CallToolRequest, key string) (int, error) {
@@ -473,37 +394,6 @@ func (h *ToolHandler) handleAnalyzeImage(ctx context.Context, request mcp.CallTo
 	dataURI, err := image.ResolveToDataURI(imageRef)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to resolve image: %v", err)), nil
-	}
-
-	response, err := h.chatCompletion(ctx, prompt, dataURI)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Vision model error: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(response), nil
-}
-
-func (h *ToolHandler) handleDescribeImage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.trackActivity()
-	imageRef, _ := request.RequireString("image")
-	detail := request.GetString("detail", "detailed")
-
-	if imageRef == "" {
-		return mcp.NewToolResultError("image is required"), nil
-	}
-
-	if err := h.waitReady(ctx); err != nil {
-		return mcp.NewToolResultError("llama-server not ready yet"), nil
-	}
-
-	dataURI, err := image.ResolveToDataURI(imageRef)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to resolve image: %v", err)), nil
-	}
-
-	prompt := "Describe this image in detail, including all objects, text, colors, layout, and any notable elements."
-	if detail == "brief" {
-		prompt = "Briefly describe this image in 1-2 sentences."
 	}
 
 	response, err := h.chatCompletion(ctx, prompt, dataURI)

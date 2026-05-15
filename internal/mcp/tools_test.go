@@ -31,19 +31,6 @@ func TestAnalyzeImageMissingArgs(t *testing.T) {
 	}
 }
 
-func TestDescribeImageMissingArgs(t *testing.T) {
-	handler := NewToolHandler("http://localhost:8001", "test")
-	req := mcp.CallToolRequest{}
-
-	result, err := handler.handleDescribeImage(context.Background(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.IsError {
-		t.Error("expected error for missing image argument")
-	}
-}
-
 func TestChatCompletionWithMock(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {

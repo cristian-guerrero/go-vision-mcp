@@ -79,7 +79,6 @@ Pass it to your agent so it can configure the MCP server automatically.
 | Tool | Description |
 |------|-------------|
 | analyze_image(prompt, image) | Analyze an image with a custom prompt |
-| describe_image(image) | Describe an image in detail |
 
 ## Where to configure based on your agent
 
