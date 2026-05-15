@@ -22,6 +22,8 @@ func ensureInPathUnix(installDir string) error {
 	return appendToFile(shellRC, fmt.Sprintf("\nexport PATH=\"$PATH:%s\"\n", installDir))
 }
 
+func ensureInPathWindows(installDir string) error { return nil }
+
 func appendToFile(path, content string) error {
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
