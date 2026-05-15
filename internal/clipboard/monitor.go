@@ -106,6 +106,28 @@ func (m *Monitor) GetImage(index int) (string, error) {
 	return "", fmt.Errorf("clipboard image #%d not found in history (available: 1-%d)", index, len(m.entries))
 }
 
+func (m *Monitor) GetLatestImage() (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.entries) == 0 {
+		return "", fmt.Errorf("clipboard history is empty")
+	}
+	last := m.entries[len(m.entries)-1]
+	if last.OriginalPath != "" {
+		if _, err := os.Stat(last.OriginalPath); err == nil {
+			return image.ResolveToDataURI(last.OriginalPath)
+		}
+		return "", fmt.Errorf("clipboard image #%d original file not found: %s", last.Index, last.OriginalPath)
+	}
+	if last.CachedPath != "" {
+		if _, err := os.Stat(last.CachedPath); err == nil {
+			return image.ResolveToDataURI(last.CachedPath)
+		}
+		return "", fmt.Errorf("clipboard image #%d cached file not found: %s", last.Index, last.CachedPath)
+	}
+	return "", fmt.Errorf("clipboard history entry #%d has no image data", last.Index)
+}
+
 func (m *Monitor) ClearHistory() {
 	m.mu.Lock()
 	defer m.mu.Unlock()

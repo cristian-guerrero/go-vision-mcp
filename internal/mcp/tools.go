@@ -111,7 +111,6 @@ func (h *ToolHandler) waitReady(ctx context.Context) error {
 
 func (h *ToolHandler) RegisterTools(s *server.MCPServer) {
 	s.AddTool(analyzeImageTool(), h.handleAnalyzeImage)
-	s.AddTool(describeClipboardTool(), h.handleDescribeClipboard)
 	s.AddTool(analyzeClipboardTool(), h.handleAnalyzeClipboard)
 	s.AddTool(listClipboardHistoryTool(), h.handleListClipboardHistory)
 	s.AddTool(analyzeClipboardImageTool(), h.handleAnalyzeClipboardImage)
@@ -128,15 +127,6 @@ func analyzeImageTool() mcp.Tool {
 		mcp.WithString("image",
 			mcp.Required(),
 			mcp.Description("The image to analyze: URL (http/https), absolute local file path, or data:image/...;base64,... URI"),
-		),
-	)
-}
-
-func describeClipboardTool() mcp.Tool {
-	return mcp.NewTool("describe_clipboard",
-		mcp.WithDescription("Describe the image currently in your system clipboard. No image parameter needed — it reads the clipboard automatically. Use this when the user asks about an image they just copied."),
-		mcp.WithString("detail",
-			mcp.Description("Level of detail: 'brief' (1-2 sentences) or 'detailed' (full description). Defaults to detailed."),
 		),
 	)
 }
@@ -189,32 +179,6 @@ func clipboardImageDataURI() (string, error) {
 	return clipboardImageDataURIImpl()
 }
 
-func (h *ToolHandler) handleDescribeClipboard(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.trackActivity()
-	if err := h.waitReady(ctx); err != nil {
-		return mcp.NewToolResultError("llama-server not ready yet"), nil
-	}
-
-	detail := request.GetString("detail", "detailed")
-
-	dataURI, err := clipboardImageDataURI()
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Clipboard error: %v", err)), nil
-	}
-
-	prompt := "Describe this image in detail, including all objects, text, colors, layout, and any notable elements."
-	if detail == "brief" {
-		prompt = "Briefly describe this image in 1-2 sentences."
-	}
-
-	response, err := h.chatCompletion(ctx, prompt, dataURI)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Vision model error: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(response), nil
-}
-
 func (h *ToolHandler) handleAnalyzeClipboard(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h.trackActivity()
 	prompt, _ := request.RequireString("prompt")
@@ -223,13 +187,22 @@ func (h *ToolHandler) handleAnalyzeClipboard(ctx context.Context, request mcp.Ca
 		return mcp.NewToolResultError("prompt is required"), nil
 	}
 
-	if err := h.waitReady(ctx); err != nil {
-		return mcp.NewToolResultError("llama-server not ready yet"), nil
-	}
-
 	dataURI, err := clipboardImageDataURI()
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Clipboard error: %v", err)), nil
+		if h.clipboardMon != nil {
+			latest, histErr := h.clipboardMon.GetLatestImage()
+			if histErr == nil {
+				dataURI = latest
+			}
+		}
+	}
+
+	if dataURI == "" {
+		return mcp.NewToolResultError("No image found in clipboard or clipboard history. Copy an image first."), nil
+	}
+
+	if err := h.waitReady(ctx); err != nil {
+		return mcp.NewToolResultError("llama-server not ready yet"), nil
 	}
 
 	response, err := h.chatCompletion(ctx, prompt, dataURI)

@@ -68,8 +68,6 @@ When `idle_timeout > 0` (default: 5 minutes), a background goroutine monitors to
 |------|--------|-------------|
 | `analyze_image` | prompt (required), image (required) | Analyze an image with custom prompt |
 
-| `describe_clipboard` | detail (optional) | Describe the image in the clipboard |
-
 All tools wait for llama-server to be ready before processing. Clipboard tools use platform-specific backends:
 
 - **Windows**: PowerShell `System.Windows.Forms.Clipboard`, trying GetImage → GetFileDropList → GetData("Bitmap")

@@ -79,7 +79,7 @@ func (s *Server) Start(ctx context.Context) error {
 		args = append(args, "-fa", "on")
 	}
 	args = append(args, "--jinja")
-	args = append(args, "--chat-template-kwargs", `{"enable_thinking": false}`)
+	args = append(args, "--reasoning", "off")
 
 	log.Printf("Executing: %s %v", binary, args)
 

@@ -40,7 +40,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		RepoID:                  "unsloth/Qwen3.5-4B-GGUF",
-		Quantization:            "UD-IQ3_XXS",
+		Quantization:            "IQ4_XS",
 		MMProj:                  "mmproj-F16.gguf",
 		LlamaBackend:            "cuda",
 		LlamaBin:                llamaBinDefault(),
@@ -50,6 +50,7 @@ func DefaultConfig() Config {
 		NCtx:                    8192,
 		NGL:                     999,
 		FlashAttn:               true,
+		LlamaServerMode:         "auto",
 		AutoDownload:            true,
 		DownloadMirror:          "https://github.com/ggml-org/llama.cpp/releases",
 		CustomPrompt:            "Analyze this image and respond to: %s",

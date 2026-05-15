@@ -43,6 +43,7 @@ func main() {
 	freeMemory := flag.Bool("free", false, "Free GPU memory by unloading the model")
 	manualConfig := flag.Bool("manual", false, "Configure with existing models and llama-server")
 	mcpSetup := flag.Bool("mcp-setup", false, "Auto-configure MCP for installed agents (Kilo Code, OpenCode, PI Agent)")
+	analyzeClipboard := flag.String("analyze-clipboard", "", "Analyze the clipboard image with a custom prompt")
 	flag.Parse()
 
 	if *showVersion {
@@ -104,6 +105,11 @@ func main() {
 
 	if *mcpSetup {
 		runMCPSetup()
+		return
+	}
+
+	if *analyzeClipboard != "" {
+		runAnalyzeClipboard(*analyzeClipboard)
 		return
 	}
 
@@ -758,6 +764,64 @@ func runServer() {
 	handler.Stop()
 }
 
+func runAnalyzeClipboard(prompt string) {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+		os.Exit(1)
+	}
+	cfg.Save()
+
+	fmt.Fprintf(os.Stderr, "Checking clipboard...\n")
+	if _, err := mcptools.ClipboardImageDataURI(); err != nil {
+		fmt.Fprintf(os.Stderr, "Clipboard error: %v\n", err)
+		os.Exit(1)
+	}
+
+	ctx := context.Background()
+
+	fmt.Fprintf(os.Stderr, "Checking models...\n")
+	if err := download.EnsureModels(cfg, downloadProgress("Model")); err != nil {
+		fmt.Fprintf(os.Stderr, "Download models: %v\n", err)
+		os.Exit(1)
+	}
+
+	llamaBin, _, err := resolveLlamaServer(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Resolve llama-server: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Fprintf(os.Stderr, "Starting llama-server...\n")
+	srv := llamaserver.New(
+		cfg.ModelPath(),
+		cfg.MMProjPath(),
+		cfg.Port,
+		cfg.NGL,
+		cfg.NCtx,
+		cfg.FlashAttn,
+		llamaBin,
+		cfg.KvCacheTypeK,
+		cfg.KvCacheTypeV,
+	)
+	if err := srv.Start(ctx); err != nil {
+		srv.Stop()
+		fmt.Fprintf(os.Stderr, "Start llama-server: %v\n", err)
+		os.Exit(1)
+	}
+	defer srv.Stop()
+
+	fmt.Fprintf(os.Stderr, "Reading clipboard and analyzing...\n")
+	result, err := mcptools.CLIAnalyzeClipboard(ctx, prompt, srv.URL(), &http.Client{})
+	if err != nil {
+		srv.Stop()
+		fmt.Fprintf(os.Stderr, "Analysis failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println(result)
+}
+
 func displayStatus() {
 	cfg, _ := config.LoadConfig()
 	fmt.Println("Vision MCP Status")
@@ -795,7 +859,6 @@ func displayStatus() {
 	fmt.Println("Tools:")
 	fmt.Println("  analyze_image(prompt, image)")
 	fmt.Println("  analyze_clipboard(prompt)")
-	fmt.Println("  describe_clipboard(detail)")
 }
 
 func runDownload() {

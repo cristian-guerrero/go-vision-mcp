@@ -14,8 +14,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.RepoID != "unsloth/Qwen3.5-4B-GGUF" {
 		t.Errorf("expected unsloth/Qwen3.5-4B-GGUF, got %s", cfg.RepoID)
 	}
-	if cfg.Quantization != "UD-IQ3_XXS" {
-		t.Errorf("expected UD-IQ3_XXS, got %s", cfg.Quantization)
+	if cfg.Quantization != "IQ4_XS" {
+		t.Errorf("expected IQ4_XS, got %s", cfg.Quantization)
 	}
 	if cfg.Port != 8001 {
 		t.Errorf("expected 8001, got %d", cfg.Port)
@@ -30,7 +30,7 @@ func TestConfigSaveLoad(t *testing.T) {
 	cfgPath := filepath.Join(tmpDir, "config.json")
 
 	cfg := DefaultConfig()
-	cfg.Quantization = "Q5_K_M"
+	cfg.Quantization = "IQ4_XS"
 	cfg.LlamaBackend = "cuda"
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
@@ -51,8 +51,8 @@ func TestConfigSaveLoad(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	if loaded.Quantization != "Q5_K_M" {
-		t.Errorf("expected Q5_K_M, got %s", loaded.Quantization)
+	if loaded.Quantization != "IQ4_XS" {
+		t.Errorf("expected IQ4_XS, got %s", loaded.Quantization)
 	}
 	if loaded.LlamaBackend != "cuda" {
 		t.Errorf("expected cuda, got %s", loaded.LlamaBackend)
@@ -62,11 +62,11 @@ func TestConfigSaveLoad(t *testing.T) {
 func TestModelPath(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.ModelsDir = "/test/models"
-	cfg.Quantization = "Q5_K_M"
+	cfg.Quantization = "IQ4_XS"
 
 	path := cfg.ModelPath()
-	if !strings.HasSuffix(path, "Qwen3.5-4B-Q5_K_M.gguf") {
-		t.Errorf("expected path ending with Qwen3.5-4B-Q5_K_M.gguf, got %s", path)
+	if !strings.HasSuffix(path, "Qwen3.5-4B-IQ4_XS.gguf") {
+		t.Errorf("expected path ending with Qwen3.5-4B-IQ4_XS.gguf, got %s", path)
 	}
 }
 

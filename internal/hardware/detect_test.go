@@ -11,13 +11,13 @@ func TestRecommendQuantization(t *testing.T) {
 		ramGB    float64
 		expected string
 	}{
-		{"high vram", 8, 16, "Q5_K_M"},
+		{"high vram", 8, 16, "Q4_K_M"},
 		{"mid vram", 4, 12, "Q4_K_M"},
 		{"low vram mid ram", 3, 8, "Q4_K_M"},
-		{"very low", 1, 4, "IQ4_XS"},
-		{"high ram only", 0, 16, "Q5_K_M"},
+		{"very low", 1, 4, "UD-IQ3_XXS"},
+		{"high ram only", 0, 16, "Q4_K_M"},
 		{"mid ram only", 0, 10, "Q4_K_M"},
-		{"low ram only", 0, 6, "Q3_K_M"},
+		{"low ram only", 0, 6, "UD-IQ3_XXS"},
 	}
 
 	for _, tt := range tests {

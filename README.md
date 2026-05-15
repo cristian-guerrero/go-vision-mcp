@@ -119,7 +119,6 @@ When `model_path`, `mmproj_path`, or `llama_server_path` are set to a non-empty 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
 | `analyze_clipboard` | `prompt` (required) | Analyze the image currently in the clipboard |
-| `describe_clipboard` | `detail` (optional) | Describe the image currently in the clipboard |
 
 ### Clipboard History (requires `clipboard_monitor_enabled: true`)
 
