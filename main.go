@@ -512,6 +512,10 @@ func runFreeMemory() {
 		log.Fatalf("Error loading config: %v", err)
 	}
 
+	if err := llamaserver.NewLock().ForceClear(); err == nil {
+		log.Printf("Lock file cleared")
+	}
+
 	client := &http.Client{Timeout: 3 * time.Second}
 	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", cfg.Port)
 
@@ -790,7 +794,7 @@ func runServer() {
 
 		handler.SetReady()
 
-		if !alreadyRunning && cfg.IdleTimeout > 0 {
+		if cfg.IdleTimeout > 0 {
 			idleDuration := time.Duration(cfg.IdleTimeout) * time.Minute
 			go func() {
 				ticker := time.NewTicker(30 * time.Second)
@@ -800,8 +804,23 @@ func runServer() {
 						continue
 					}
 					if handler.IdleTime() > idleDuration {
-						log.Printf("Idle timeout (%d min), stopping llama-server to free memory", cfg.IdleTimeout)
-						handler.Stop()
+						log.Printf("Idle timeout (%d min), freeing GPU memory", cfg.IdleTimeout)
+						cancel()
+						handler.SetLoaded(false)
+						lck.ForceClear()
+						if srv != nil {
+							srv.Stop()
+						} else {
+							pid := findProcessOnPort(cfg.Port)
+							if pid > 0 {
+								proc, err := os.FindProcess(pid)
+								if err == nil {
+									proc.Signal(syscall.SIGTERM)
+									time.Sleep(2 * time.Second)
+									proc.Kill()
+								}
+							}
+						}
 					}
 				}
 			}()
