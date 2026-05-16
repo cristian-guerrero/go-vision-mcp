@@ -682,6 +682,8 @@ func runServer() {
 			cfg.Save()
 		}
 
+		lck := llamaserver.NewLock()
+
 		healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", cfg.Port)
 		hc := &http.Client{Timeout: 2 * time.Second}
 		alreadyRunning := false
@@ -691,6 +693,9 @@ func runServer() {
 			handler.SetLlamaURL(fmt.Sprintf("http://127.0.0.1:%d", cfg.Port))
 			handler.SetLoaded(true)
 			alreadyRunning = true
+			if err := lck.AddPID(); err != nil {
+				log.Printf("Warning: failed to register in lock: %v", err)
+			}
 		}
 
 		_, cancel := context.WithCancel(context.Background())
@@ -702,8 +707,12 @@ func runServer() {
 			if clipMon != nil {
 				clipMon.Stop()
 			}
-			if srv != nil {
+
+			shouldStop, _ := lck.Release()
+			if shouldStop && srv != nil {
 				srv.Stop()
+			} else {
+				log.Printf("llama-server kept alive for other MCP processes")
 			}
 		})
 
@@ -773,6 +782,7 @@ func runServer() {
 				return fmt.Errorf("start llama-server: %w", err)
 			}
 			srv = newSrv
+			lck.Start(cfg.Port)
 			handler.SetLlamaURL(srv.URL())
 			handler.SetLoaded(true)
 			return nil
