@@ -16,6 +16,20 @@ import (
 	"time"
 )
 
+// Options holds all configuration for a llama-server subprocess.
+// Fields map directly to llama-server CLI arguments.
+type Options struct {
+	ModelPath    string
+	MMProjPath   string
+	Port         int
+	NGL          int
+	NCtx         int
+	FlashAttn    bool
+	BinaryName   string
+	KvCacheTypeK string
+	KvCacheTypeV string
+}
+
 // Server wraps a llama-server subprocess. It holds the command,
 // arguments, and health-check state.
 type Server struct {
@@ -31,19 +45,18 @@ type Server struct {
 	ctv    string
 }
 
-// New creates a Server but does not start it. The binary is expected
-// to be on PATH or the full path must be given as binaryName.
-func New(modelPath, mmprojPath string, port, ngl, nctx int, flashAttn bool, binaryName, kvCacheTypeK, kvCacheTypeV string) *Server {
+// New creates a Server but does not start it.
+func New(opts Options) *Server {
 	return &Server{
-		model:  modelPath,
-		mmproj: mmprojPath,
-		port:   port,
-		ngl:    ngl,
-		nctx:   nctx,
-		flash:  flashAttn,
-		bin:    binaryName,
-		ctk:    kvCacheTypeK,
-		ctv:    kvCacheTypeV,
+		model:  opts.ModelPath,
+		mmproj: opts.MMProjPath,
+		port:   opts.Port,
+		ngl:    opts.NGL,
+		nctx:   opts.NCtx,
+		flash:  opts.FlashAttn,
+		bin:    opts.BinaryName,
+		ctk:    opts.KvCacheTypeK,
+		ctv:    opts.KvCacheTypeV,
 	}
 }
 
