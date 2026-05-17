@@ -23,6 +23,22 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/image"
 )
 
+// ensureLoaded starts/restarts llama-server if not running.
+// Uses restartMu to serialize concurrent restart attempts: only one
+// goroutine starts the server; others wait and re-check loaded.
+// If no restart func is configured, it's a no-op (caller handles it).
+func (h *ToolHandler) ensureLoaded(ctx context.Context) error {
+	h.restartMu.Lock()
+	defer h.restartMu.Unlock()
+
+	if h.loaded || h.restartFunc == nil {
+		return nil
+	}
+
+	log.Printf("llama-server not loaded, starting...")
+	return h.restartFunc(context.Background())
+}
+
 // ToolHandler manages MCP tool registration, llama-server lifecycle
 // (lazy start / restart on demand), activity tracking for idle timeout,
 // and clipboard monitor integration.
@@ -34,6 +50,7 @@ type ToolHandler struct {
 	clipboardMon *clipboard.Monitor
 
 	mu           sync.Mutex
+	restartMu    sync.Mutex
 	lastActivity time.Time
 	loaded       bool
 	restartFunc  func(context.Context) error
@@ -475,16 +492,8 @@ type chatResponse struct {
 // to llama-server. Automatically starts/restarts llama-server if not
 // loaded.
 func (h *ToolHandler) chatCompletionMulti(ctx context.Context, prompt string, dataURIs []string) (string, error) {
-	h.mu.Lock()
-	if !h.loaded && h.restartFunc != nil {
-		fn := h.restartFunc
-		h.mu.Unlock()
-		log.Printf("llama-server not loaded, starting...")
-		if err := fn(context.Background()); err != nil {
-			return "", fmt.Errorf("start llama-server: %w", err)
-		}
-	} else {
-		h.mu.Unlock()
+	if err := h.ensureLoaded(ctx); err != nil {
+		return "", fmt.Errorf("start llama-server: %w", err)
 	}
 
 	var contents []chatContent
@@ -514,16 +523,8 @@ func (h *ToolHandler) chatCompletionMulti(ctx context.Context, prompt string, da
 // chatCompletion sends a single-image vision request to llama-server.
 // Automatically starts/restarts llama-server if not loaded.
 func (h *ToolHandler) chatCompletion(ctx context.Context, prompt, dataURI string) (string, error) {
-	h.mu.Lock()
-	if !h.loaded && h.restartFunc != nil {
-		fn := h.restartFunc
-		h.mu.Unlock()
-		log.Printf("llama-server not loaded, starting...")
-		if err := fn(context.Background()); err != nil {
-			return "", fmt.Errorf("start llama-server: %w", err)
-		}
-	} else {
-		h.mu.Unlock()
+	if err := h.ensureLoaded(ctx); err != nil {
+		return "", fmt.Errorf("start llama-server: %w", err)
 	}
 
 	req := chatRequest{
@@ -561,16 +562,11 @@ func (h *ToolHandler) sendChatRequest(ctx context.Context, body []byte) (string,
 		resp, err := h.httpClient.Do(httpReq)
 		if err != nil {
 			if attempt == 0 {
-				h.mu.Lock()
-				fn := h.restartFunc
-				h.mu.Unlock()
-				if fn != nil {
-					log.Printf("llama-server unreachable, restarting...")
-					if restartErr := fn(context.Background()); restartErr != nil {
-						return "", fmt.Errorf("llama-server request: %w (restart failed: %v)", err, restartErr)
-					}
-					continue
+				log.Printf("llama-server unreachable, restarting...")
+				if restartErr := h.ensureLoaded(context.Background()); restartErr != nil {
+					return "", fmt.Errorf("llama-server request: %w (restart failed: %v)", err, restartErr)
 				}
+				continue
 			}
 			return "", fmt.Errorf("llama-server request: %w", err)
 		}

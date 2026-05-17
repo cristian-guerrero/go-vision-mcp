@@ -83,9 +83,6 @@ func (s *Server) Start(ctx context.Context) error {
 		"-ctk", ctk,
 		"-ctv", ctv,
 	}
-	if s.ngl > 0 {
-		args = append(args, "--no-mmap")
-	}
 	if s.flash {
 		args = append(args, "-fa", "on")
 	}
