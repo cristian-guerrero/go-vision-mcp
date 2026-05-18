@@ -1,6 +1,7 @@
 // Package image resolves image references (URLs, file paths, data URIs)
 // into data:image/...;base64,... URIs suitable for llama-server's
-// vision API. WebP images are automatically converted to PNG.
+// vision API. WebP images are automatically converted to PNG and
+// AVIF images are automatically converted to JPEG.
 package image
 
 import (
@@ -43,7 +44,7 @@ func ResolveToDataURI(ref string) (string, error) {
 }
 
 // fileToDataURI reads a local image file and returns its data URI.
-// WebP files are transparently converted to PNG.
+// WebP files are transparently converted to PNG and AVIF files to JPEG.
 func fileToDataURI(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -51,12 +52,19 @@ func fileToDataURI(path string) (string, error) {
 	}
 
 	mime := mimeType(path)
-	if mime == "image/webp" {
+	switch mime {
+	case "image/webp":
 		pngData, err := DecodeWebPToPNG(data)
 		if err != nil {
 			return "", fmt.Errorf("convert webp to png: %w", err)
 		}
 		return encodeDataURI("image/png", pngData), nil
+	case "image/avif":
+		jpegData, err := DecodeAVIFToJPEG(data)
+		if err != nil {
+			return "", fmt.Errorf("convert avif to jpeg: %w", err)
+		}
+		return encodeDataURI("image/jpeg", jpegData), nil
 	}
 
 	return encodeDataURI(mime, data), nil
@@ -94,7 +102,7 @@ func encodeDataURI(mime string, data []byte) string {
 }
 
 // mimeType returns the MIME type for common image extensions
-// (png → image/png, jpg/jpeg → image/jpeg, webp → image/webp, etc.).
+// (png → image/png, jpg/jpeg → image/jpeg, webp → image/webp, avif → image/avif, etc.).
 func mimeType(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
@@ -108,6 +116,8 @@ func mimeType(path string) string {
 		return "image/gif"
 	case ".bmp":
 		return "image/bmp"
+	case ".avif":
+		return "image/avif"
 	default:
 		return "image/jpeg"
 	}

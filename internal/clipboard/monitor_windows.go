@@ -11,7 +11,7 @@ import (
 )
 
 // clipboardPollImage uses PowerShell to check for a new clipboard image.
-// It tries GetImage → GetFileDropList (image files and WebP) → GetData("Bitmap").
+// It tries GetImage → GetFileDropList (image files, WebP, AVIF) → GetData("Bitmap").
 // Returns nil when no image is in the clipboard (no error).
 func clipboardPollImage() (*PollResult, error) {
 	tmpDir := os.TempDir()
@@ -32,6 +32,9 @@ if ($img -eq $null) {
 		$ext = [System.IO.Path]::GetExtension($origPath).ToLower()
 		if ($ext -eq '.webp') {
 			Write-Output ("file_webp:" + $origPath)
+			exit 0
+		} elseif ($ext -eq '.avif') {
+			Write-Output ("file_avif:" + $origPath)
 			exit 0
 		} elseif ($ext -in '.png','.jpg','.jpeg','.gif','.bmp') {
 			Write-Output ("file:" + $origPath)
@@ -78,6 +81,13 @@ exit 0
 
 	if strings.HasPrefix(lastLine, "file_webp:") {
 		origPath := strings.TrimPrefix(lastLine, "file_webp:")
+		if _, err := os.Stat(origPath); err == nil {
+			return &PollResult{OriginalPath: origPath}, nil
+		}
+	}
+
+	if strings.HasPrefix(lastLine, "file_avif:") {
+		origPath := strings.TrimPrefix(lastLine, "file_avif:")
 		if _, err := os.Stat(origPath); err == nil {
 			return &PollResult{OriginalPath: origPath}, nil
 		}

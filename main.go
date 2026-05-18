@@ -7,8 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -363,47 +361,7 @@ func runMCPSetup() {
 		return
 	}
 
-	fmt.Println()
-
-	for _, a := range selected {
-		if a.Type == discover.AgentPi {
-			piAgentDir := filepath.Join(homeDir(), ".pi", "agent", "settings.json")
-			if data, err := os.ReadFile(piAgentDir); err == nil {
-				if !strings.Contains(string(data), "pi-mcp-adapter") {
-					fmt.Printf("%s requires pi-mcp-adapter.\n", a.Name)
-					fmt.Print("Install pi-mcp-adapter now? [Y/n]: ")
-					var input string
-					fmt.Scanln(&input)
-					input = strings.TrimSpace(strings.ToLower(input))
-					if input == "" || input == "y" || input == "yes" {
-						fmt.Println("Installing pi-mcp-adapter...")
-						if err := discover.InstallPiMCPAdapter(); err != nil {
-							log.Printf("Warning: install failed: %v", err)
-							fmt.Println("Install manually: pi install npm:pi-mcp-adapter")
-						}
-					}
-				}
-			}
-		}
-
-		fmt.Printf("Configuring %s...\n", a.Name)
-		if err := discover.ConfigureAgentMCP(a, exe); err != nil {
-			log.Printf("Warning: failed to configure %s: %v", a.Name, err)
-			fmt.Printf("  ✗ %s failed: %v\n", a.Name, err)
-			continue
-		}
-		fmt.Printf("  ✓ %s configured!\n", a.Name)
-	}
-
-	if len(selected) > 0 {
-		fmt.Println("\nMCP setup complete! Restart your agent to apply changes.")
-	}
-}
-
-// homeDir returns the current user's home directory, or empty on error.
-func homeDir() string {
-	home, _ := os.UserHomeDir()
-	return home
+	configureAgents(selected, exe)
 }
 
 // promptMCPSetup is called after configuration completes. It detects
@@ -424,6 +382,18 @@ func promptMCPSetup() {
 		return
 	}
 
+	configureAgents(selected, exe)
+}
+
+// homeDir returns the current user's home directory, or empty on error.
+func homeDir() string {
+	home, _ := os.UserHomeDir()
+	return home
+}
+
+// configureAgents runs the Pi adapter check and MCP configuration for
+// each selected agent. Shared by runMCPSetup and promptMCPSetup.
+func configureAgents(selected []discover.AgentInfo, exe string) {
 	fmt.Println()
 	for _, a := range selected {
 		if a.Type == discover.AgentPi {
@@ -432,10 +402,10 @@ func promptMCPSetup() {
 				if !strings.Contains(string(data), "pi-mcp-adapter") {
 					fmt.Printf("%s requires pi-mcp-adapter.\n", a.Name)
 					fmt.Print("Install pi-mcp-adapter now? [Y/n]: ")
-					var piInput string
-					fmt.Scanln(&piInput)
-					piInput = strings.TrimSpace(strings.ToLower(piInput))
-					if piInput == "" || piInput == "y" || piInput == "yes" {
+					var input string
+					fmt.Scanln(&input)
+					input = strings.TrimSpace(strings.ToLower(input))
+					if input == "" || input == "y" || input == "yes" {
 						fmt.Println("Installing pi-mcp-adapter...")
 						if err := discover.InstallPiMCPAdapter(); err != nil {
 							log.Printf("Warning: install failed: %v", err)
@@ -522,12 +492,12 @@ func runFreeMemory() {
 	resp, err := client.Get(healthURL)
 	if err != nil {
 		fmt.Printf("No llama-server responding on port %d\n", cfg.Port)
-		killAnyLlamaServer()
+		llamaserver.KillAnyLlamaServer()
 		return
 	}
 	resp.Body.Close()
 
-	pid := findProcessOnPort(cfg.Port)
+	pid := llamaserver.FindProcessOnPort(cfg.Port)
 	if pid > 0 {
 		proc, err := os.FindProcess(pid)
 		if err == nil {
@@ -539,58 +509,7 @@ func runFreeMemory() {
 		}
 	}
 	fmt.Println("Could not find process to free.")
-	killAnyLlamaServer()
-}
-
-// killAnyLlamaServer uses taskkill (Windows) or pkill (Unix) to
-// forcefully terminate all llama-server processes.
-func killAnyLlamaServer() {
-	bin := "llama-server"
-	if runtime.GOOS == "windows" {
-		bin = "llama-server.exe"
-	}
-
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("taskkill", "/F", "/IM", bin)
-	} else {
-		cmd = exec.Command("pkill", "-f", "llama-server")
-	}
-	if err := cmd.Run(); err != nil {
-		fmt.Println("No llama-server processes found.")
-	} else {
-		fmt.Println("Killed remaining llama-server processes.")
-	}
-}
-
-// findProcessOnPort returns the PID of the process listening on the
-// given TCP port. Uses netstat (Windows) or lsof (Unix).
-func findProcessOnPort(port int) int {
-	pid := 0
-	portStr := fmt.Sprintf(":%d ", port)
-
-	if runtime.GOOS == "windows" {
-		out, err := exec.Command("netstat", "-ano").Output()
-		if err != nil {
-			return 0
-		}
-		lines := strings.Split(string(out), "\n")
-		for _, line := range lines {
-			if strings.Contains(line, "LISTENING") && strings.Contains(line, portStr) {
-				fields := strings.Fields(line)
-				if len(fields) > 0 {
-					fmt.Sscanf(fields[len(fields)-1], "%d", &pid)
-				}
-			}
-		}
-	} else {
-		out, err := exec.Command("lsof", "-ti", fmt.Sprintf(":%d", port)).Output()
-		if err != nil {
-			return 0
-		}
-		fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &pid)
-	}
-	return pid
+	llamaserver.KillAnyLlamaServer()
 }
 
 // resolveLlamaServer returns the path to a llama-server binary.
@@ -598,6 +517,7 @@ func findProcessOnPort(port int) int {
 //   - "auto": downloads the binary matching LlamaBackend
 //   - "custom": uses the user-configured LlamaServerPath
 //   - "" (default): looks in PATH first, falls back to auto-download
+//
 // Returns (resolvedPath, newPathIfDownloaded, error).
 func resolveLlamaServer(cfg *config.Config) (binPath, newPath string, err error) {
 	mode := cfg.LlamaServerMode
@@ -647,10 +567,10 @@ func resolveLlamaServer(cfg *config.Config) (binPath, newPath string, err error)
 	}
 }
 
-// runServer starts the MCP server in STDIO mode. It performs async
-// initialization: hardware detection, port reuse check, model download
-// (lazy), and llama-server startup (lazy on first tool call).
-// Also starts idle timeout monitor and signal handler goroutines.
+// runServer starts the MCP server in STDIO mode. It delegates all
+// async initialization (hardware detection, port reuse, model download,
+// lazy llama-server start) and lifecycle management (idle timeout,
+// signal handling) to ServerManager.
 func runServer() {
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -662,7 +582,7 @@ func runServer() {
 	handler := mcptools.NewToolHandler("", cfg.CustomPrompt)
 	handler.RegisterTools(mcpServer)
 
-	var clipMon *clipboard.Monitor
+	var clipMon clipboard.MonitorInterface
 	if cfg.ClipboardMonitorEnabled {
 		clipMon = clipboard.NewMonitor(cfg)
 		clipMon.Start()
@@ -670,176 +590,8 @@ func runServer() {
 		log.Printf("Clipboard monitor enabled (history limit: %d)", cfg.ClipboardHistoryLimit)
 	}
 
-	go func() {
-		hw, err := hardware.DetectHardware()
-		if err == nil {
-			log.Printf("Hardware: RAM=%dGB VRAM=%dGB",
-				hw.TotalRAM/(1024*1024*1024),
-				hw.GPU.VRAM/(1024*1024*1024))
-
-			if cfg.LlamaBackend == "" || cfg.LlamaBackend == "cuda" && !hw.GPU.Present {
-				cfg.LlamaBackend = hardware.RecommendBackend(hw)
-			}
-			if cfg.LlamaBackend == "cpu" {
-				cfg.NGL = 0
-			}
-			cfg.Save()
-		}
-
-		lck := llamaserver.NewLock()
-
-		healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", cfg.Port)
-		hc := &http.Client{Timeout: 2 * time.Second}
-		alreadyRunning := false
-		if resp, err := hc.Get(healthURL); err == nil {
-			resp.Body.Close()
-			log.Printf("llama-server already running on port %d, reusing", cfg.Port)
-			handler.SetLlamaURL(fmt.Sprintf("http://127.0.0.1:%d", cfg.Port))
-			handler.SetLoaded(true)
-			alreadyRunning = true
-			if err := lck.AddPID(); err != nil {
-				log.Printf("Warning: failed to register in lock: %v", err)
-			}
-		}
-
-		_, cancel := context.WithCancel(context.Background())
-		var srv *llamaserver.Server
-
-		handler.SetStopFunc(func() {
-			cancel()
-			handler.SetLoaded(false)
-			if clipMon != nil {
-				clipMon.Stop()
-			}
-
-			shouldStop, _ := lck.Release()
-			if shouldStop && srv != nil {
-				srv.Stop()
-			} else {
-				log.Printf("llama-server kept alive for other MCP processes")
-			}
-		})
-
-		assetsReady := make(chan struct{})
-
-		if !alreadyRunning && cfg.AutoDownload {
-			go func() {
-				downloadErr := func() error {
-					if err := download.EnsureModels(cfg, downloadProgress("Model")); err != nil {
-						return err
-					}
-					_, newLlamaPath, err := resolveLlamaServer(cfg)
-					if err != nil {
-						return err
-					}
-					if newLlamaPath != "" {
-						cfg.LlamaServerPath = newLlamaPath
-					}
-					cfg.ModelPathOverride = cfg.ModelPath()
-					cfg.MMProjPathOverride = cfg.MMProjPath()
-					cfg.Save()
-					return nil
-				}()
-				if downloadErr != nil {
-					log.Printf("Warning: background asset download failed: %v", downloadErr)
-				}
-				close(assetsReady)
-			}()
-		} else {
-			close(assetsReady)
-		}
-
-		handler.SetRestartFunc(func(restartCtx context.Context) error {
-			select {
-			case <-assetsReady:
-			case <-restartCtx.Done():
-				return restartCtx.Err()
-			}
-
-			if cfg.AutoDownload {
-				if err := download.EnsureModels(cfg, downloadProgress("Model")); err != nil {
-					return fmt.Errorf("download models: %w", err)
-				}
-			}
-
-			llamaBin, newLlamaPath, err := resolveLlamaServer(cfg)
-			if err != nil {
-				return fmt.Errorf("resolve llama-server: %w", err)
-			}
-			if newLlamaPath != "" {
-				cfg.LlamaServerPath = newLlamaPath
-				cfg.Save()
-			}
-
-			newSrv := llamaserver.New(
-				cfg.ModelPath(),
-				cfg.MMProjPath(),
-				cfg.Port,
-				cfg.NGL,
-				cfg.NCtx,
-				cfg.FlashAttn,
-				llamaBin,
-				cfg.KvCacheTypeK,
-				cfg.KvCacheTypeV,
-			)
-			if err := newSrv.Start(restartCtx); err != nil {
-				return fmt.Errorf("start llama-server: %w", err)
-			}
-			srv = newSrv
-			lck.Start(cfg.Port)
-			handler.SetLlamaURL(srv.URL())
-			handler.SetLoaded(true)
-			return nil
-		})
-
-		handler.SetReady()
-
-		if cfg.IdleTimeout > 0 {
-			idleDuration := time.Duration(cfg.IdleTimeout) * time.Minute
-			go func() {
-				ticker := time.NewTicker(30 * time.Second)
-				defer ticker.Stop()
-				for range ticker.C {
-					if !handler.IsLoaded() {
-						continue
-					}
-					if handler.IdleTime() > idleDuration {
-						log.Printf("Idle timeout (%d min), freeing GPU memory", cfg.IdleTimeout)
-						cancel()
-						handler.SetLoaded(false)
-						lck.ForceClear()
-						if srv != nil {
-							srv.Stop()
-						} else {
-							pid := findProcessOnPort(cfg.Port)
-							if pid > 0 {
-								proc, err := os.FindProcess(pid)
-								if err == nil {
-									proc.Signal(syscall.SIGTERM)
-									time.Sleep(2 * time.Second)
-									proc.Kill()
-								}
-							}
-						}
-					}
-				}
-			}()
-		}
-
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		go func() {
-			<-sigCh
-			log.Printf("Shutting down...")
-			handler.Stop()
-			os.Exit(0)
-		}()
-	}()
-
-	log.Printf("MCP server ready (STDIO mode)")
-	if err := server.ServeStdio(mcpServer); err != nil {
-		log.Printf("MCP server error: %v", err)
-	}
+	mgr := NewServerManager(cfg, handler, clipMon)
+	mgr.Run(mcpServer)
 
 	log.Printf("MCP client disconnected, cleaning up...")
 	handler.Stop()
@@ -878,17 +630,17 @@ func runAnalyzeClipboard(prompt string) {
 	}
 
 	fmt.Fprintf(os.Stderr, "Starting llama-server...\n")
-	srv := llamaserver.New(
-		cfg.ModelPath(),
-		cfg.MMProjPath(),
-		cfg.Port,
-		cfg.NGL,
-		cfg.NCtx,
-		cfg.FlashAttn,
-		llamaBin,
-		cfg.KvCacheTypeK,
-		cfg.KvCacheTypeV,
-	)
+	srv := llamaserver.New(llamaserver.Options{
+		ModelPath:    cfg.ModelPath(),
+		MMProjPath:   cfg.MMProjPath(),
+		Port:         cfg.Port,
+		NGL:          cfg.NGL,
+		NCtx:         cfg.NCtx,
+		FlashAttn:    cfg.FlashAttn,
+		BinaryName:   llamaBin,
+		KvCacheTypeK: cfg.KvCacheTypeK,
+		KvCacheTypeV: cfg.KvCacheTypeV,
+	})
 	if err := srv.Start(ctx); err != nil {
 		srv.Stop()
 		fmt.Fprintf(os.Stderr, "Start llama-server: %v\n", err)

@@ -16,7 +16,7 @@ import (
 // clipboardImageDataURIImpl uses a PowerShell script that invokes
 // System.Windows.Forms.Clipboard to retrieve an image. It tries:
 // GetImage → GetFileDropList → GetData("Bitmap"). WebP images from
-// file drop lists are converted to PNG via image.DecodeWebPToPNG.
+// file drop lists are converted to PNG and AVIF images to JPEG.
 func clipboardImageDataURIImpl() (string, error) {
 	tmpDir := os.TempDir()
 	tmpPath := filepath.Join(tmpDir, "vision-mcp-clipboard.png")
@@ -26,7 +26,7 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 $img = $null
-$webpPath = $null
+$rawPath = $null
 
 $img = [System.Windows.Forms.Clipboard]::GetImage()
 
@@ -35,23 +35,26 @@ if ($img -eq $null) {
 	if ($files -ne $null -and $files.Count -gt 0) {
 		$ext = [System.IO.Path]::GetExtension($files[0]).ToLower()
 		if ($ext -eq '.webp') {
-			$webpPath = $files[0]
+			$rawPath = $files[0]
+		} elseif ($ext -eq '.avif') {
+			$rawPath = $files[0]
 		} elseif ($ext -in '.png','.jpg','.jpeg','.gif','.bmp') {
 			$img = [System.Drawing.Image]::FromFile($files[0])
 		}
 	}
 }
 
-if ($img -eq $null -and $webpPath -eq $null) {
+if ($img -eq $null -and $rawPath -eq $null) {
 	$data = [System.Windows.Forms.Clipboard]::GetData("Bitmap")
 	if ($data -ne $null) {
 		$img = $data
 	}
 }
 
-if ($webpPath -ne $null) {
-	[System.IO.File]::ReadAllBytes($webpPath) | Set-Content -Path '%s' -Encoding Byte -NoNewline
-	Write-Output "webp"
+if ($rawPath -ne $null) {
+	[System.IO.File]::ReadAllBytes($rawPath) | Set-Content -Path '%s' -Encoding Byte -NoNewline
+	$ext = [System.IO.Path]::GetExtension($rawPath).ToLower().TrimStart('.')
+	Write-Output $ext
 	exit 0
 }
 
@@ -83,12 +86,19 @@ exit 0
 	}
 
 	outStr := strings.TrimSpace(string(out))
-	if strings.HasSuffix(outStr, "webp") {
+	switch outStr {
+	case "webp":
 		pngData, err := image.DecodeWebPToPNG(data)
 		if err != nil {
 			return "", fmt.Errorf("convert clipboard webp: %w", err)
 		}
 		data = pngData
+	case "avif":
+		jpegData, err := image.DecodeAVIFToJPEG(data)
+		if err != nil {
+			return "", fmt.Errorf("convert clipboard avif: %w", err)
+		}
+		data = jpegData
 	}
 
 	b64 := base64.StdEncoding.EncodeToString(data)

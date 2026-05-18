@@ -5,11 +5,8 @@
 package mcp
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -23,20 +20,24 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/image"
 )
 
-// ToolHandler manages MCP tool registration, llama-server lifecycle
-// (lazy start / restart on demand), activity tracking for idle timeout,
-// and clipboard monitor integration.
+// HTTPClient defines the interface for sending HTTP requests.
+// *http.Client satisfies this interface, making the MCP handler
+// testable without real network calls.
+type HTTPClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+// ToolHandler manages MCP tool registration, activity tracking for
+// idle timeout, clipboard monitor integration, and delegates
+// llama-server communication to LlamaClient.
 type ToolHandler struct {
-	llamaURL     string
 	customPrompt string
-	httpClient   *http.Client
 	ready        chan struct{}
-	clipboardMon *clipboard.Monitor
+	clipboardMon clipboard.MonitorInterface
+	client       *LlamaClient
 
 	mu           sync.Mutex
 	lastActivity time.Time
-	loaded       bool
-	restartFunc  func(context.Context) error
 	stopFunc     func()
 }
 
@@ -44,27 +45,18 @@ type ToolHandler struct {
 // later; customPrompt is a fmt template like "Analyze: %s".
 func NewToolHandler(llamaURL, customPrompt string) *ToolHandler {
 	return &ToolHandler{
-		llamaURL:     llamaURL,
 		customPrompt: customPrompt,
-		httpClient:   &http.Client{},
 		ready:        make(chan struct{}),
 		lastActivity: time.Now(),
+		client:       NewLlamaClient(llamaURL, nil),
 	}
 }
 
 // SetLoaded marks whether llama-server is currently running and ready.
-func (h *ToolHandler) SetLoaded(v bool) {
-	h.mu.Lock()
-	h.loaded = v
-	h.mu.Unlock()
-}
+func (h *ToolHandler) SetLoaded(v bool) { h.client.SetLoaded(v) }
 
 // IsLoaded returns true if llama-server is currently running.
-func (h *ToolHandler) IsLoaded() bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.loaded
-}
+func (h *ToolHandler) IsLoaded() bool { return h.client.IsLoaded() }
 
 // IdleTime returns the duration since the last tool call activity.
 func (h *ToolHandler) IdleTime() time.Duration {
@@ -75,11 +67,7 @@ func (h *ToolHandler) IdleTime() time.Duration {
 
 // SetRestartFunc registers a function that downloads models (if needed)
 // and starts/restarts llama-server. Called on-demand from chatCompletion.
-func (h *ToolHandler) SetRestartFunc(f func(context.Context) error) {
-	h.mu.Lock()
-	h.restartFunc = f
-	h.mu.Unlock()
-}
+func (h *ToolHandler) SetRestartFunc(f func(context.Context) error) { h.client.SetRestartFunc(f) }
 
 // SetStopFunc registers a cleanup function that stops llama-server
 // and the clipboard monitor.
@@ -91,7 +79,7 @@ func (h *ToolHandler) SetStopFunc(f func()) {
 
 // SetClipboardMonitor attaches the clipboard history monitor to the
 // handler so clipboard tools can access historical images.
-func (h *ToolHandler) SetClipboardMonitor(m *clipboard.Monitor) {
+func (h *ToolHandler) SetClipboardMonitor(m clipboard.MonitorInterface) {
 	h.clipboardMon = m
 }
 
@@ -115,9 +103,7 @@ func (h *ToolHandler) trackActivity() {
 }
 
 // SetLlamaURL sets the base URL for the llama-server API endpoint.
-func (h *ToolHandler) SetLlamaURL(url string) {
-	h.llamaURL = url
-}
+func (h *ToolHandler) SetLlamaURL(url string) { h.client.SetLlamaURL(url) }
 
 // SetReady signals that the handler is initialized and tools can
 // proceed (closes the ready channel).
@@ -152,7 +138,7 @@ func (h *ToolHandler) RegisterTools(s *server.MCPServer) {
 func analyzeImageTool() mcp.Tool {
 	return mcp.NewTool("analyze_image",
 		mcp.WithDescription("Ask a custom question about an image (identify objects, read text, count items, compare elements, etc). Provide an image via URL, local file path, or base64 data URI."),
-		mcp.WithString("prompt",
+		mcp.WithString("question",
 			mcp.Required(),
 			mcp.Description("What to ask about the image. Be specific (e.g. 'What objects are in this image?', 'Read all text visible', 'How many people?', 'Describe the colors')."),
 		),
@@ -168,7 +154,7 @@ func analyzeImageTool() mcp.Tool {
 func analyzeClipboardTool() mcp.Tool {
 	return mcp.NewTool("analyze_clipboard",
 		mcp.WithDescription("Ask a custom question about the image currently in your system clipboard. No image parameter needed — it reads the clipboard automatically. Use this when the user asks a specific question about an image they just copied (e.g. 'what model is this?', 'read the text')."),
-		mcp.WithString("prompt",
+		mcp.WithString("question",
 			mcp.Required(),
 			mcp.Description("What to ask about the clipboard image. Be specific and direct (e.g. 'List all car models in this image', 'What does the sign say?', 'Describe the person')."),
 		),
@@ -192,7 +178,7 @@ func analyzeClipboardImageTool() mcp.Tool {
 			mcp.Required(),
 			mcp.Description("The index of the image in the clipboard history (e.g. 1 for the first image captured, 2 for the second)."),
 		),
-		mcp.WithString("prompt",
+		mcp.WithString("question",
 			mcp.Required(),
 			mcp.Description("What to ask about the image. Be specific."),
 		),
@@ -208,7 +194,7 @@ func analyzeClipboardImagesTool() mcp.Tool {
 			mcp.Required(),
 			mcp.Description("Comma-separated list of image indices from clipboard history, e.g. '1,2,3'."),
 		),
-		mcp.WithString("prompt",
+		mcp.WithString("question",
 			mcp.Required(),
 			mcp.Description("What to ask about the images. You can reference them by position (e.g. 'Image 1 is the BEFORE, Image 2 is the AFTER. What changed?')."),
 		),
@@ -226,10 +212,10 @@ func clipboardImageDataURI() (string, error) {
 // user's prompt.
 func (h *ToolHandler) handleAnalyzeClipboard(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h.trackActivity()
-	prompt, _ := request.RequireString("prompt")
+	prompt, _ := request.RequireString("question")
 
 	if prompt == "" {
-		return mcp.NewToolResultError("prompt is required"), nil
+		return mcp.NewToolResultError("question is required"), nil
 	}
 
 	dataURI, err := clipboardImageDataURI()
@@ -293,9 +279,9 @@ func (h *ToolHandler) handleAnalyzeClipboardImage(ctx context.Context, request m
 		return mcp.NewToolResultError(fmt.Sprintf("Invalid index: %v", err)), nil
 	}
 
-	prompt, _ := request.RequireString("prompt")
+	prompt, _ := request.RequireString("question")
 	if prompt == "" {
-		return mcp.NewToolResultError("prompt is required"), nil
+		return mcp.NewToolResultError("question is required"), nil
 	}
 
 	if err := h.waitReady(ctx); err != nil {
@@ -329,9 +315,9 @@ func (h *ToolHandler) handleAnalyzeClipboardImages(ctx context.Context, request 
 		return mcp.NewToolResultError("indices is required (comma-separated, e.g. '1,2,3')"), nil
 	}
 
-	prompt, _ := request.RequireString("prompt")
+	prompt, _ := request.RequireString("question")
 	if prompt == "" {
-		return mcp.NewToolResultError("prompt is required"), nil
+		return mcp.NewToolResultError("question is required"), nil
 	}
 
 	var indices []int
@@ -411,11 +397,11 @@ func requestInt(request mcp.CallToolRequest, key string) (int, error) {
 // with the user's prompt.
 func (h *ToolHandler) handleAnalyzeImage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h.trackActivity()
-	prompt, _ := request.RequireString("prompt")
+	prompt, _ := request.RequireString("question")
 	imageRef, _ := request.RequireString("image")
 
 	if prompt == "" || imageRef == "" {
-		return mcp.NewToolResultError("prompt and image are required"), nil
+		return mcp.NewToolResultError("question and image are required"), nil
 	}
 
 	if err := h.waitReady(ctx); err != nil {
@@ -435,162 +421,12 @@ func (h *ToolHandler) handleAnalyzeImage(ctx context.Context, request mcp.CallTo
 	return mcp.NewToolResultText(response), nil
 }
 
-// chatRequest is the JSON body sent to llama-server's
-// /v1/chat/completions endpoint.
-type chatRequest struct {
-	Messages           []chatMessage  `json:"messages"`
-	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
-}
-
-// chatMessage represents a single message in the chat request
-// (role + content array).
-type chatMessage struct {
-	Role    string        `json:"role"`
-	Content []chatContent `json:"content"`
-}
-
-// chatContent is a single item within a message: either "text"
-// or "image_url".
-type chatContent struct {
-	Type     string    `json:"type"`
-	Text     string    `json:"text,omitempty"`
-	ImageURL *imageURL `json:"image_url,omitempty"`
-}
-
-// imageURL wraps the data URI or URL of an image for the vision model.
-type imageURL struct {
-	URL string `json:"url"`
-}
-
-// chatResponse maps the OpenAI-compatible response from llama-server.
-type chatResponse struct {
-	Choices []struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	} `json:"choices"`
-}
-
-// chatCompletionMulti sends a vision request with multiple images
-// to llama-server. Automatically starts/restarts llama-server if not
-// loaded.
-func (h *ToolHandler) chatCompletionMulti(ctx context.Context, prompt string, dataURIs []string) (string, error) {
-	h.mu.Lock()
-	if !h.loaded && h.restartFunc != nil {
-		fn := h.restartFunc
-		h.mu.Unlock()
-		log.Printf("llama-server not loaded, starting...")
-		if err := fn(context.Background()); err != nil {
-			return "", fmt.Errorf("start llama-server: %w", err)
-		}
-	} else {
-		h.mu.Unlock()
-	}
-
-	var contents []chatContent
-	for _, uri := range dataURIs {
-		contents = append(contents, chatContent{Type: "image_url", ImageURL: &imageURL{URL: uri}})
-	}
-	contents = append(contents, chatContent{Type: "text", Text: prompt})
-
-	req := chatRequest{
-		ChatTemplateKwargs: map[string]any{"enable_thinking": false},
-		Messages: []chatMessage{
-			{
-				Role:    "user",
-				Content: contents,
-			},
-		},
-	}
-
-	body, err := json.Marshal(req)
-	if err != nil {
-		return "", fmt.Errorf("marshal request: %w", err)
-	}
-
-	return h.sendChatRequest(ctx, body)
-}
-
-// chatCompletion sends a single-image vision request to llama-server.
-// Automatically starts/restarts llama-server if not loaded.
+// chatCompletion sends a single-image vision request via the client.
 func (h *ToolHandler) chatCompletion(ctx context.Context, prompt, dataURI string) (string, error) {
-	h.mu.Lock()
-	if !h.loaded && h.restartFunc != nil {
-		fn := h.restartFunc
-		h.mu.Unlock()
-		log.Printf("llama-server not loaded, starting...")
-		if err := fn(context.Background()); err != nil {
-			return "", fmt.Errorf("start llama-server: %w", err)
-		}
-	} else {
-		h.mu.Unlock()
-	}
-
-	req := chatRequest{
-		ChatTemplateKwargs: map[string]any{"enable_thinking": false},
-		Messages: []chatMessage{
-			{
-				Role: "user",
-				Content: []chatContent{
-					{Type: "image_url", ImageURL: &imageURL{URL: dataURI}},
-					{Type: "text", Text: prompt},
-				},
-			},
-		},
-	}
-
-	body, err := json.Marshal(req)
-	if err != nil {
-		return "", fmt.Errorf("marshal request: %w", err)
-	}
-
-	return h.sendChatRequest(ctx, body)
+	return h.client.ChatCompletion(ctx, prompt, dataURI)
 }
 
-// sendChatRequest POSTs a JSON body to /v1/chat/completions with an
-// automatic retry on connection failure (attempts to restart
-// llama-server before the retry).
-func (h *ToolHandler) sendChatRequest(ctx context.Context, body []byte) (string, error) {
-	for attempt := 0; attempt < 2; attempt++ {
-		httpReq, err := http.NewRequestWithContext(ctx, "POST", h.llamaURL+"/v1/chat/completions", bytes.NewReader(body))
-		if err != nil {
-			return "", fmt.Errorf("create request: %w", err)
-		}
-		httpReq.Header.Set("Content-Type", "application/json")
-
-		resp, err := h.httpClient.Do(httpReq)
-		if err != nil {
-			if attempt == 0 {
-				h.mu.Lock()
-				fn := h.restartFunc
-				h.mu.Unlock()
-				if fn != nil {
-					log.Printf("llama-server unreachable, restarting...")
-					if restartErr := fn(context.Background()); restartErr != nil {
-						return "", fmt.Errorf("llama-server request: %w (restart failed: %v)", err, restartErr)
-					}
-					continue
-				}
-			}
-			return "", fmt.Errorf("llama-server request: %w", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			return "", fmt.Errorf("llama-server returned HTTP %d", resp.StatusCode)
-		}
-
-		var chatResp chatResponse
-		if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
-			return "", fmt.Errorf("decode response: %w", err)
-		}
-
-		if len(chatResp.Choices) == 0 {
-			return "", fmt.Errorf("no response from model")
-		}
-
-		return chatResp.Choices[0].Message.Content, nil
-	}
-
-	return "", fmt.Errorf("llama-server request failed after restart")
+// chatCompletionMulti sends a multi-image vision request via the client.
+func (h *ToolHandler) chatCompletionMulti(ctx context.Context, prompt string, dataURIs []string) (string, error) {
+	return h.client.ChatCompletionMulti(ctx, prompt, dataURIs)
 }
