@@ -76,6 +76,7 @@ func TestMimeTypeDetection(t *testing.T) {
 		{"graphic.webp", "image/webp"},
 		{"anim.gif", "image/gif"},
 		{"screen.bmp", "image/bmp"},
+		{"photo.avif", "image/avif"},
 		{"unknown.xyz", "image/jpeg"},
 	}
 
