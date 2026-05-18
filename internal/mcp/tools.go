@@ -138,7 +138,7 @@ func (h *ToolHandler) RegisterTools(s *server.MCPServer) {
 func analyzeImageTool() mcp.Tool {
 	return mcp.NewTool("analyze_image",
 		mcp.WithDescription("Ask a custom question about an image (identify objects, read text, count items, compare elements, etc). Provide an image via URL, local file path, or base64 data URI."),
-		mcp.WithString("prompt",
+		mcp.WithString("question",
 			mcp.Required(),
 			mcp.Description("What to ask about the image. Be specific (e.g. 'What objects are in this image?', 'Read all text visible', 'How many people?', 'Describe the colors')."),
 		),
@@ -154,7 +154,7 @@ func analyzeImageTool() mcp.Tool {
 func analyzeClipboardTool() mcp.Tool {
 	return mcp.NewTool("analyze_clipboard",
 		mcp.WithDescription("Ask a custom question about the image currently in your system clipboard. No image parameter needed — it reads the clipboard automatically. Use this when the user asks a specific question about an image they just copied (e.g. 'what model is this?', 'read the text')."),
-		mcp.WithString("prompt",
+		mcp.WithString("question",
 			mcp.Required(),
 			mcp.Description("What to ask about the clipboard image. Be specific and direct (e.g. 'List all car models in this image', 'What does the sign say?', 'Describe the person')."),
 		),
@@ -178,7 +178,7 @@ func analyzeClipboardImageTool() mcp.Tool {
 			mcp.Required(),
 			mcp.Description("The index of the image in the clipboard history (e.g. 1 for the first image captured, 2 for the second)."),
 		),
-		mcp.WithString("prompt",
+		mcp.WithString("question",
 			mcp.Required(),
 			mcp.Description("What to ask about the image. Be specific."),
 		),
@@ -194,7 +194,7 @@ func analyzeClipboardImagesTool() mcp.Tool {
 			mcp.Required(),
 			mcp.Description("Comma-separated list of image indices from clipboard history, e.g. '1,2,3'."),
 		),
-		mcp.WithString("prompt",
+		mcp.WithString("question",
 			mcp.Required(),
 			mcp.Description("What to ask about the images. You can reference them by position (e.g. 'Image 1 is the BEFORE, Image 2 is the AFTER. What changed?')."),
 		),
@@ -212,10 +212,10 @@ func clipboardImageDataURI() (string, error) {
 // user's prompt.
 func (h *ToolHandler) handleAnalyzeClipboard(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h.trackActivity()
-	prompt, _ := request.RequireString("prompt")
+	prompt, _ := request.RequireString("question")
 
 	if prompt == "" {
-		return mcp.NewToolResultError("prompt is required"), nil
+		return mcp.NewToolResultError("question is required"), nil
 	}
 
 	dataURI, err := clipboardImageDataURI()
@@ -279,9 +279,9 @@ func (h *ToolHandler) handleAnalyzeClipboardImage(ctx context.Context, request m
 		return mcp.NewToolResultError(fmt.Sprintf("Invalid index: %v", err)), nil
 	}
 
-	prompt, _ := request.RequireString("prompt")
+	prompt, _ := request.RequireString("question")
 	if prompt == "" {
-		return mcp.NewToolResultError("prompt is required"), nil
+		return mcp.NewToolResultError("question is required"), nil
 	}
 
 	if err := h.waitReady(ctx); err != nil {
@@ -315,9 +315,9 @@ func (h *ToolHandler) handleAnalyzeClipboardImages(ctx context.Context, request 
 		return mcp.NewToolResultError("indices is required (comma-separated, e.g. '1,2,3')"), nil
 	}
 
-	prompt, _ := request.RequireString("prompt")
+	prompt, _ := request.RequireString("question")
 	if prompt == "" {
-		return mcp.NewToolResultError("prompt is required"), nil
+		return mcp.NewToolResultError("question is required"), nil
 	}
 
 	var indices []int
@@ -397,11 +397,11 @@ func requestInt(request mcp.CallToolRequest, key string) (int, error) {
 // with the user's prompt.
 func (h *ToolHandler) handleAnalyzeImage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h.trackActivity()
-	prompt, _ := request.RequireString("prompt")
+	prompt, _ := request.RequireString("question")
 	imageRef, _ := request.RequireString("image")
 
 	if prompt == "" || imageRef == "" {
-		return mcp.NewToolResultError("prompt and image are required"), nil
+		return mcp.NewToolResultError("question and image are required"), nil
 	}
 
 	if err := h.waitReady(ctx); err != nil {
