@@ -5,102 +5,25 @@ package mcp
 import (
 	"encoding/base64"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 
+	"github.com/cristian-guerrero/go-vision-mcp/internal/clipboard"
 	"github.com/cristian-guerrero/go-vision-mcp/internal/image"
 )
 
-// clipboardImageDataURIImpl uses a PowerShell script that invokes
-// System.Windows.Forms.Clipboard to retrieve an image. It tries:
-// GetImage → GetFileDropList → GetData("Bitmap"). WebP images from
-// file drop lists are converted to PNG and AVIF images to JPEG.
+// clipboardImageDataURIImpl reads the clipboard image using Win32 API
+// and returns a data:image/...;base64,... URI.
 func clipboardImageDataURIImpl() (string, error) {
-	tmpDir := os.TempDir()
-	tmpPath := filepath.Join(tmpDir, "vision-mcp-clipboard.png")
-
-	psScript := fmt.Sprintf(`
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-
-$img = $null
-$rawPath = $null
-
-$img = [System.Windows.Forms.Clipboard]::GetImage()
-
-if ($img -eq $null) {
-	$files = [System.Windows.Forms.Clipboard]::GetFileDropList()
-	if ($files -ne $null -and $files.Count -gt 0) {
-		$ext = [System.IO.Path]::GetExtension($files[0]).ToLower()
-		if ($ext -eq '.webp') {
-			$rawPath = $files[0]
-		} elseif ($ext -eq '.avif') {
-			$rawPath = $files[0]
-		} elseif ($ext -in '.png','.jpg','.jpeg','.gif','.bmp') {
-			$img = [System.Drawing.Image]::FromFile($files[0])
-		}
-	}
-}
-
-if ($img -eq $null -and $rawPath -eq $null) {
-	$data = [System.Windows.Forms.Clipboard]::GetData("Bitmap")
-	if ($data -ne $null) {
-		$img = $data
-	}
-}
-
-if ($rawPath -ne $null) {
-	[System.IO.File]::ReadAllBytes($rawPath) | Set-Content -Path '%s' -Encoding Byte -NoNewline
-	$ext = [System.IO.Path]::GetExtension($rawPath).ToLower().TrimStart('.')
-	Write-Output $ext
-	exit 0
-}
-
-if ($img -eq $null) { Write-Output "no_image"; exit 1 }
-
-$bmp = New-Object System.Drawing.Bitmap($img)
-$bmp.Save('%s', [System.Drawing.Imaging.ImageFormat]::Png)
-$bmp.Dispose()
-$img.Dispose()
-Write-Output "png"
-exit 0
-`, strings.ReplaceAll(tmpPath, "'", "''"), strings.ReplaceAll(tmpPath, "'", "''"))
-
-	cmd := exec.Command("powershell", "-NoProfile", "-Command", psScript)
-	out, err := cmd.CombinedOutput()
+	pngData, origPath, _, err := clipboard.ReadClipboardImage()
 	if err != nil {
-		msg := strings.TrimSpace(string(out))
-		if strings.Contains(msg, "no_image") {
-			return "", fmt.Errorf("no image found in clipboard")
-		}
-		return "", fmt.Errorf("clipboard read failed: %v - %s", err, msg)
+		return "", fmt.Errorf("clipboard: %w", err)
 	}
 
-	defer os.Remove(tmpPath)
-
-	data, err := os.ReadFile(tmpPath)
-	if err != nil {
-		return "", fmt.Errorf("read clipboard image: %w", err)
+	// File drops (including WebP/AVIF) are resolved by
+	// image.ResolveToDataURI which handles conversion.
+	if origPath != "" {
+		return image.ResolveToDataURI(origPath)
 	}
 
-	outStr := strings.TrimSpace(string(out))
-	switch outStr {
-	case "webp":
-		pngData, err := image.DecodeWebPToPNG(data)
-		if err != nil {
-			return "", fmt.Errorf("convert clipboard webp: %w", err)
-		}
-		data = pngData
-	case "avif":
-		jpegData, err := image.DecodeAVIFToJPEG(data)
-		if err != nil {
-			return "", fmt.Errorf("convert clipboard avif: %w", err)
-		}
-		data = jpegData
-	}
-
-	b64 := base64.StdEncoding.EncodeToString(data)
+	b64 := base64.StdEncoding.EncodeToString(pngData)
 	return fmt.Sprintf("data:image/png;base64,%s", b64), nil
 }
