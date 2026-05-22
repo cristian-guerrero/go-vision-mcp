@@ -1,5 +1,6 @@
-// Package installer copies the vision-mcp binary to ~/.go-mcp/vision/,
-// creates shell launchers, and adds the directory to PATH.
+// Package installer copies the vision-mcp binary to ~/.go-mcp/vision/
+// and adds the directory to PATH. On Windows a .cmd launcher is also
+// created.
 package installer
 
 import (
@@ -9,9 +10,8 @@ import (
 	"runtime"
 )
 
-// Install copies the binary to installDir, creates a shell launcher
-// script (.cmd on Windows, shell wrapper on Unix), and adds installDir
-// to the user's PATH.
+// Install copies the binary to installDir, creates a .cmd launcher on
+// Windows, and adds installDir to the user's PATH.
 func Install(installDir, binaryPath string) error {
 	if err := os.MkdirAll(installDir, 0755); err != nil {
 		return fmt.Errorf("create install dir: %w", err)
@@ -29,10 +29,6 @@ func Install(installDir, binaryPath string) error {
 
 	if runtime.GOOS == "windows" {
 		if err := createLauncherCMD(installDir); err != nil {
-			return fmt.Errorf("create launcher: %w", err)
-		}
-	} else {
-		if err := createLauncherSH(installDir); err != nil {
 			return fmt.Errorf("create launcher: %w", err)
 		}
 	}
@@ -55,15 +51,6 @@ func executableName() string {
 func createLauncherCMD(installDir string) error {
 	content := fmt.Sprintf("@echo off\r\n\"%s\\%s\" %%*\r\n", installDir, executableName())
 	return os.WriteFile(filepath.Join(installDir, "vision-mcp.cmd"), []byte(content), 0644)
-}
-
-func createLauncherSH(installDir string) error {
-	content := fmt.Sprintf("#!/bin/sh\nexec \"%s/%s\" \"$@\"\n", installDir, executableName())
-	path := filepath.Join(installDir, "vision-mcp")
-	if err := os.WriteFile(path, []byte(content), 0755); err != nil {
-		return err
-	}
-	return nil
 }
 
 // InstallDir returns the canonical install directory (~/.go-mcp/vision/).
