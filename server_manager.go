@@ -85,7 +85,7 @@ func (sm *ServerManager) initAsync() {
 			hw.TotalRAM/(1024*1024*1024),
 			hw.GPU.VRAM/(1024*1024*1024))
 
-		if sm.cfg.LlamaBackend == "" || sm.cfg.LlamaBackend == "cuda" && !hw.GPU.Present {
+		if sm.cfg.LlamaBackend == "" || sm.cfg.LlamaBackend == "cuda" {
 			sm.cfg.LlamaBackend = hardware.RecommendBackend(hw)
 		}
 		if sm.cfg.LlamaBackend == "cpu" {
@@ -262,6 +262,8 @@ func (sm *ServerManager) downloadAssets() {
 	}()
 	if downloadErr != nil {
 		log.Printf("Warning: background asset download failed: %v", downloadErr)
+	} else {
+		log.Printf("Assets ready, waiting for MCP client...")
 	}
 	close(sm.assetsReady)
 }

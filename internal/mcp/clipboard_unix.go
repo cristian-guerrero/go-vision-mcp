@@ -9,6 +9,25 @@ import (
 	"os/exec"
 )
 
+// CheckClipboardDeps returns a warning message if the system is missing
+// the required clipboard tool (xclip for X11, wl-paste for Wayland),
+// or an empty string if all dependencies are met.
+func CheckClipboardDeps() string {
+	if os.Getenv("WAYLAND_DISPLAY") != "" {
+		if _, err := exec.LookPath("wl-paste"); err != nil {
+			return "Clipboard requires 'wl-clipboard'. Install: sudo apt install wl-clipboard"
+		}
+		return ""
+	}
+	if os.Getenv("DISPLAY") != "" {
+		if _, err := exec.LookPath("xclip"); err != nil {
+			return "Clipboard requires 'xclip'. Install: sudo apt install xclip"
+		}
+		return ""
+	}
+	return "Clipboard requires X11 (xclip) or Wayland (wl-paste) — neither display server detected"
+}
+
 // clipboardImageDataURIImpl detects the display server and delegates
 // to xclip (X11) or wl-paste (Wayland) to read the clipboard image.
 func clipboardImageDataURIImpl() (string, error) {
@@ -28,9 +47,9 @@ func waylandClipboard() (string, error) {
 	data, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
-			return "", fmt.Errorf("wl-paste failed (stderr: %s): is wl-clipboard installed?", string(ee.Stderr))
+			return "", fmt.Errorf("wl-paste failed (stderr: %s): install wl-clipboard: sudo apt install wl-clipboard", string(ee.Stderr))
 		}
-		return "", fmt.Errorf("wl-paste not found: install wl-clipboard package")
+		return "", fmt.Errorf("wl-paste not found: install wl-clipboard: sudo apt install wl-clipboard")
 	}
 	if len(data) == 0 {
 		return "", fmt.Errorf("no image found in clipboard")
@@ -46,9 +65,9 @@ func x11Clipboard() (string, error) {
 	data, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
-			return "", fmt.Errorf("xclip failed (stderr: %s): is xclip installed?", string(ee.Stderr))
+			return "", fmt.Errorf("xclip failed (stderr: %s): install xclip: sudo apt install xclip", string(ee.Stderr))
 		}
-		return "", fmt.Errorf("xclip not found: install xclip package")
+		return "", fmt.Errorf("xclip not found: install xclip: sudo apt install xclip")
 	}
 	if len(data) == 0 {
 		return "", fmt.Errorf("no image found in clipboard")

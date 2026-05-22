@@ -1,6 +1,8 @@
 // Package hardware — recommendation algorithms.
 package hardware
 
+import "runtime"
+
 // QuantOption describes a single quantization option with human-readable
 // size and quality label.
 type QuantOption struct {
@@ -13,10 +15,19 @@ type QuantOption struct {
 // RecommendBackend selects the best llama.cpp backend based on
 // detected GPU vendor: CUDA (NVIDIA), Metal (Apple), Vulkan (AMD/Intel),
 // or CPU fallback.
+//
+// On Linux, CUDA pre-built binaries are not published by llama.cpp, so
+// NVIDIA GPUs fall back to Vulkan (if available) or CPU.
 func RecommendBackend(hw *HardwareProfile) string {
 	if hw.GPU.Present {
 		switch hw.GPU.Vendor {
 		case "nvidia":
+			if runtime.GOOS == "linux" {
+				if VulkanAvailable() {
+					return "vulkan"
+				}
+				return "cpu"
+			}
 			return "cuda"
 		case "apple":
 			return "metal"
@@ -34,14 +45,27 @@ func RecommendBackend(hw *HardwareProfile) string {
 }
 
 // RecommendQuantization picks a quantization level based on available
-// VRAM and RAM: Q4_K_M for ≥4 GB VRAM or ≥8 GB RAM, otherwise
-// UD-IQ3_XXS for ultra-low-memory systems.
+// VRAM (when a GPU is present) or RAM (CPU-only). On mid-range GPUs
+// (4–8 GB VRAM) the smaller IQ4_XS is preferred to leave more VRAM
+// headroom for KV cache / context. High-end GPUs (≥8 GB) use Q4_K_M.
+// Systems without a GPU fall back to system-RAM-based sizing.
 func RecommendQuantization(hw *HardwareProfile) string {
-	vramGB := float64(hw.GPU.VRAM) / (1024 * 1024 * 1024)
+	if hw.GPU.Present && hw.GPU.VRAM > 0 {
+		vramGB := float64(hw.GPU.VRAM) / (1024 * 1024 * 1024)
+		if vramGB >= 8 {
+			return "Q4_K_M"
+		}
+		if vramGB >= 4 {
+			return "IQ4_XS"
+		}
+		return "UD-IQ3_XXS"
+	}
 	ramGB := float64(hw.TotalRAM) / (1024 * 1024 * 1024)
-
-	if vramGB >= 4 || ramGB >= 8 {
+	if ramGB >= 16 {
 		return "Q4_K_M"
+	}
+	if ramGB >= 8 {
+		return "IQ4_XS"
 	}
 	return "UD-IQ3_XXS"
 }

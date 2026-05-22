@@ -71,13 +71,18 @@ type matchResult struct {
 // asset and optionally a secondary CUDA runtime archive.
 func findAssets(release *Release, backend string) *matchResult {
 	osKey := osKey()
+	archExclude := archExcludeKeys()
 	var standard, extra []*ReleaseAsset
 
 	for i := range release.Assets {
 		asset := &release.Assets[i]
 		name := strings.ToLower(asset.Name)
 
-		if !strings.Contains(name, osKey) {
+		if !strings.Contains(name, osKey) && !strings.Contains(name, "linux") {
+			continue
+		}
+
+		if containsAny(name, archExclude...) {
 			continue
 		}
 
@@ -99,7 +104,7 @@ func findAssets(release *Release, backend string) *matchResult {
 				standard = append(standard, asset)
 			}
 		case "cpu":
-			if !strings.Contains(name, "cuda") && !strings.Contains(name, "vulkan") {
+			if !containsAny(name, "cuda", "vulkan", "rocm", "sycl", "openvino", "hip") {
 				standard = append(standard, asset)
 			}
 		}
@@ -117,18 +122,41 @@ func findAssets(release *Release, backend string) *matchResult {
 }
 
 // osKey returns the platform substring used in release asset names
-// ("win" for Windows, "linux" for Linux, "macos" for Darwin).
+// ("win" for Windows, "ubuntu" for Linux, "macos" for Darwin).
+// llama.cpp CI publishes Ubuntu-based builds for Linux.
 func osKey() string {
 	switch runtime.GOOS {
 	case "windows":
 		return "win"
-	case "linux":
-		return "linux"
 	case "darwin":
 		return "macos"
 	default:
-		return "linux"
+		return "ubuntu"
 	}
+}
+
+// archExcludeKeys returns substrings to exclude based on the current
+// architecture: on amd64, exclude ARM64/aarch64 assets; on arm64,
+// exclude x86_64 assets. Returns nil when no exclusion is needed.
+func archExcludeKeys() []string {
+	switch runtime.GOARCH {
+	case "amd64":
+		return []string{"arm64", "aarch64", "s390x"}
+	case "arm64":
+		return []string{"x64", "s390x"}
+	default:
+		return nil
+	}
+}
+
+// containsAny returns true if s contains any of the given substrings.
+func containsAny(s string, substrings ...string) bool {
+	for _, sub := range substrings {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
 }
 
 // llamaServerDir returns the destination directory for llama-server
@@ -199,8 +227,8 @@ func EnsureLlamaBinary(backend, destDir string, progress ProgressFunc) (string, 
 	return binPath, nil
 }
 
-// downloadAndExtract downloads a release archive and extracts the
-// llama-server binary from it.
+// downloadAndExtract downloads a release archive, cleans the target
+// directory, and extracts the llama-server binary from it.
 func downloadAndExtract(asset *ReleaseAsset, binDir string, progress ProgressFunc) (string, error) {
 	fmt.Printf("Downloading %s...\n", asset.Name)
 
@@ -210,12 +238,33 @@ func downloadAndExtract(asset *ReleaseAsset, binDir string, progress ProgressFun
 	}
 	defer os.Remove(tmpPath)
 
+	// Remove stale files from previous failed extractions
+	cleanDir(binDir)
+
 	binaryPath, err := extractLlamaBinary(tmpPath, binDir)
 	if err != nil {
 		return "", fmt.Errorf("extract binary: %w", err)
 	}
 
 	return binaryPath, nil
+}
+
+// cleanDir removes all non-archive files from a directory.
+func cleanDir(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		if strings.HasSuffix(e.Name(), ".tar.gz") || strings.HasSuffix(e.Name(), ".zip") {
+			continue
+		}
+		os.Remove(p)
+	}
 }
 
 // downloadAndExtractExtra downloads a secondary archive (e.g. CUDA
@@ -285,7 +334,7 @@ func extractFromZip(zipPath, destDir string, findServer bool) (string, error) {
 		}
 
 		base := strings.ToLower(filepath.Base(f.Name))
-		isServer := findServer && strings.Contains(base, "llama-server") && strings.HasSuffix(base, ".exe")
+		isServer := findServer && (base == "llama-server" || base == "llama-server.exe")
 
 		destPath := filepath.Join(destDir, filepath.Base(f.Name))
 
@@ -356,6 +405,7 @@ func extractFromTar(tarPath, destDir string, findServer bool) (string, error) {
 
 // extractTar reads a tar stream and extracts files to destDir.
 // If findServer is true, it tracks and returns llama-server's path.
+// Symlinks are recreated; .so/.dylib files are NOT matched as server.
 func extractTar(r io.Reader, destDir string, findServer bool) (string, error) {
 	tr := tar.NewReader(r)
 	var binaryPath string
@@ -373,10 +423,17 @@ func extractTar(r io.Reader, destDir string, findServer bool) (string, error) {
 			continue
 		}
 
-		base := strings.ToLower(filepath.Base(hdr.Name))
-		isServer := findServer && strings.Contains(base, "llama-server") && strings.HasSuffix(base, ".exe")
-
 		destPath := filepath.Join(destDir, filepath.Base(hdr.Name))
+		_ = os.Remove(destPath)
+
+		switch hdr.Typeflag {
+		case tar.TypeSymlink:
+			os.Symlink(hdr.Linkname, destPath)
+			continue
+		case tar.TypeLink:
+			os.Link(filepath.Join(destDir, hdr.Linkname), destPath)
+			continue
+		}
 
 		dst, err := os.Create(destPath)
 		if err != nil {
@@ -389,10 +446,13 @@ func extractTar(r io.Reader, destDir string, findServer bool) (string, error) {
 			return "", fmt.Errorf("extract %s: %w", hdr.Name, err)
 		}
 
-		if isServer {
-			binaryPath = destPath
-			if runtime.GOOS != "windows" {
-				os.Chmod(destPath, 0755)
+		if findServer {
+			base := strings.ToLower(filepath.Base(hdr.Name))
+			if base == "llama-server" || base == "llama-server.exe" {
+				binaryPath = destPath
+				if runtime.GOOS != "windows" {
+					os.Chmod(destPath, 0755)
+				}
 			}
 		}
 	}
