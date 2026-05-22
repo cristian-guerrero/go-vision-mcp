@@ -40,6 +40,7 @@ type Config struct {
 	ClipboardMonitorEnabled bool   `json:"clipboard_monitor_enabled"`
 	ClipboardHistoryLimit   int    `json:"clipboard_history_limit"`
 	ClipboardCacheDir       string `json:"clipboard_cache_dir"`
+	ScreenshotFolder        string `json:"screenshot_folder"`
 }
 
 // DefaultConfig returns a Config pre-filled with sensible defaults:
@@ -71,6 +72,7 @@ func DefaultConfig() Config {
 		ClipboardMonitorEnabled: true,
 		ClipboardHistoryLimit:   5,
 		ClipboardCacheDir:       "",
+		ScreenshotFolder:        "",
 	}
 }
 

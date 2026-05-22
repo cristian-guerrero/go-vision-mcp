@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,22 +43,29 @@ type Monitor struct {
 	cancel context.CancelFunc
 	cfg    *config.Config
 
-	entries     []Entry
-	cacheDir    string
-	historyPath string
-	limit       int
-	intervalMs  int
+	entries           []Entry
+	cacheDir          string
+	historyPath       string
+	limit             int
+	intervalMs        int
+	screenshotFolder  string
+	screenshotLastMod time.Time
 }
 
 // NewMonitor creates a clipboard Monitor. Call Start() to begin polling.
 func NewMonitor(cfg *config.Config) *Monitor {
 	cacheDir := cfg.ClipboardCacheDirPath()
+	screenshotFolder := cfg.ScreenshotFolder
+	if screenshotFolder == "" {
+		screenshotFolder = defaultScreenshotFolder()
+	}
 	return &Monitor{
-		cfg:         cfg,
-		cacheDir:    cacheDir,
-		historyPath: filepath.Join(cacheDir, "history.json"),
-		limit:       cfg.ClipboardHistoryLimit,
-		intervalMs:  1000,
+		cfg:              cfg,
+		cacheDir:         cacheDir,
+		historyPath:      filepath.Join(cacheDir, "history.json"),
+		limit:            cfg.ClipboardHistoryLimit,
+		intervalMs:       1000,
+		screenshotFolder: screenshotFolder,
 	}
 }
 
@@ -66,7 +74,12 @@ func NewMonitor(cfg *config.Config) *Monitor {
 func (m *Monitor) Start() {
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	os.MkdirAll(m.cacheDir, 0755)
-	log.Printf("Clipboard monitor started (cache: %s, limit: %d)", m.cacheDir, m.limit)
+	if m.screenshotFolder != "" {
+		log.Printf("Clipboard monitor started (cache: %s, limit: %d, screenshots: %s)", m.cacheDir, m.limit, m.screenshotFolder)
+	} else {
+		log.Printf("Clipboard monitor started (cache: %s, limit: %d)", m.cacheDir, m.limit)
+	}
+	m.screenshotLastMod = time.Now()
 	go m.pollLoop()
 }
 
@@ -149,8 +162,8 @@ func (m *Monitor) ClearHistory() {
 	m.purgeCache()
 }
 
-// pollLoop runs every intervalMs and checks the clipboard for new images.
-// New images are deduplicated by comparing against the in-memory history.
+// pollLoop runs every intervalMs and checks the clipboard for new images
+// and the screenshots folder for new captures.
 func (m *Monitor) pollLoop() {
 	ticker := time.NewTicker(time.Duration(m.intervalMs) * time.Millisecond)
 	defer ticker.Stop()
@@ -163,17 +176,21 @@ func (m *Monitor) pollLoop() {
 		}
 
 		result, err := clipboardPollImage()
-		if err != nil || result == nil {
-			continue
+		if err == nil && result != nil {
+			m.mu.Lock()
+			if !m.isDuplicate(result) {
+				m.saveEntry(result)
+			}
+			m.mu.Unlock()
 		}
 
-		m.mu.Lock()
-		if m.isDuplicate(result) {
+		if path := m.checkScreenshotFolder(); path != "" {
+			m.mu.Lock()
+			if !m.isDuplicate(&PollResult{OriginalPath: path}) {
+				m.saveEntry(&PollResult{OriginalPath: path})
+			}
 			m.mu.Unlock()
-			continue
 		}
-		m.saveEntry(result)
-		m.mu.Unlock()
 	}
 }
 
@@ -186,6 +203,64 @@ func (m *Monitor) isDuplicate(result *PollResult) bool {
 		}
 	}
 	return false
+}
+
+// imageExts are the file extensions treated as images by the screenshot
+// folder monitor.
+var imageExts = map[string]bool{
+	".png": true,
+}
+
+// checkScreenshotFolder checks if a new image was added to the
+// screenshots folder. Returns the path of the newest image, or empty
+// string if nothing changed.
+func (m *Monitor) checkScreenshotFolder() string {
+	if m.screenshotFolder == "" {
+		return ""
+	}
+
+	info, err := os.Stat(m.screenshotFolder)
+	if err != nil {
+		return ""
+	}
+	folderMod := info.ModTime()
+	if !folderMod.After(m.screenshotLastMod) && !m.screenshotLastMod.IsZero() {
+		return ""
+	}
+
+	entries, err := os.ReadDir(m.screenshotFolder)
+	if err != nil {
+		return ""
+	}
+
+	var newestFile string
+	var newestMod time.Time
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(entry.Name()))
+		if !imageExts[ext] {
+			continue
+		}
+		fi, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		mod := fi.ModTime()
+		if mod.After(newestMod) {
+			newestMod = mod
+			newestFile = filepath.Join(m.screenshotFolder, entry.Name())
+		}
+	}
+
+	if newestFile != "" && newestMod.After(m.screenshotLastMod) {
+		m.screenshotLastMod = newestMod
+		log.Printf("Screenshot monitor [%s]: new image -> %s", m.screenshotFolder, newestFile)
+		return newestFile
+	}
+	m.screenshotLastMod = folderMod
+	return ""
 }
 
 // saveEntry inserts a new clipboard entry into the ring buffer. When
