@@ -5,6 +5,8 @@ package clipboard
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -32,6 +34,7 @@ type Entry struct {
 	Timestamp    time.Time `json:"timestamp"`
 	OriginalPath string    `json:"original_path,omitempty"`
 	CachedPath   string    `json:"cached_path,omitempty"`
+	Hash         string    `json:"hash,omitempty"`
 }
 
 // Monitor periodically polls the system clipboard for new images,
@@ -194,15 +197,34 @@ func (m *Monitor) pollLoop() {
 	}
 }
 
-// isDuplicate checks whether a file-based PollResult already exists in
-// the history by comparing the original file path.
+// isDuplicate checks whether a PollResult already exists in the history.
+// File-based entries are compared by path; raw data entries are compared
+// by content hash.
 func (m *Monitor) isDuplicate(result *PollResult) bool {
-	for _, e := range m.entries {
-		if e.OriginalPath == result.OriginalPath {
-			return true
+	if result.OriginalPath != "" {
+		for _, e := range m.entries {
+			if e.OriginalPath == result.OriginalPath {
+				return true
+			}
+		}
+		return false
+	}
+	if len(result.Data) > 0 {
+		h := hashRawData(result.Data)
+		for _, e := range m.entries {
+			if e.Hash == h {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// hashRawData returns a content hash for raw clipboard data (first 16
+// bytes of SHA-256, base64-encoded).
+func hashRawData(data []byte) string {
+	hash := sha256.Sum256(data)
+	return base64.RawURLEncoding.EncodeToString(hash[:16])
 }
 
 // imageExts are the file extensions treated as images by the screenshot
@@ -284,10 +306,29 @@ func (m *Monitor) saveEntry(result *PollResult) {
 	e.Index = index
 	e.Timestamp = time.Now()
 
-	e.OriginalPath = result.OriginalPath
+	if result.OriginalPath != "" {
+		e.OriginalPath = result.OriginalPath
+		log.Printf("Clipboard monitor: image #%d -> %s (original file)", index, result.OriginalPath)
+	} else if len(result.Data) > 0 {
+		h := hashRawData(result.Data)
+		e.Hash = h
+		shortHash := h
+		if len(shortHash) > 8 {
+			shortHash = shortHash[:8]
+		}
+		filename := fmt.Sprintf("clip-%s.png", shortHash)
+		filePath := filepath.Join(m.cacheDir, filename)
+		if err := os.WriteFile(filePath, result.Data, 0644); err != nil {
+			log.Printf("Clipboard monitor: failed to save image #%d: %v", index, err)
+			return
+		}
+		e.CachedPath = filePath
+		log.Printf("Clipboard monitor: saved image #%d (%d bytes) -> %s", index, len(result.Data), filePath)
+	} else {
+		return
+	}
 
 	m.entries = append(m.entries, e)
-	log.Printf("Clipboard monitor: image #%d -> %s (original file)", index, result.OriginalPath)
 	m.saveHistory()
 }
 

@@ -33,14 +33,13 @@ func defaultScreenshotFolder() string {
 }
 
 // clipboardPollImage reads the clipboard using the Win32 API directly.
-// Returns nil when no image is in the clipboard (no error).
+// Only returns file drops (CF_HDROP); raw bitmap data is skipped
+// because DIB→PNG conversion is expensive on Windows. Screenshots
+// are captured via folder monitoring instead.
 func clipboardPollImage() (*PollResult, error) {
-	pngData, origPath, _, err := ReadClipboardImage()
-	if err != nil {
+	_, origPath, _, err := ReadClipboardImage()
+	if err != nil || origPath == "" {
 		return nil, nil
 	}
-	if origPath != "" {
-		return &PollResult{OriginalPath: origPath}, nil
-	}
-	return &PollResult{Data: pngData}, nil
+	return &PollResult{OriginalPath: origPath}, nil
 }
