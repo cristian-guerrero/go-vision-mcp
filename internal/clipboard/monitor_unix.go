@@ -5,26 +5,17 @@ package clipboard
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
 )
 
-// defaultScreenshotFolder returns the platform-specific screenshots
-// path:
-//   - macOS: ~/Desktop (configurable in Screenshot.app, this is the default)
-//   - Linux: ~/Pictures/Screenshots (GNOME default; KDE typically uses ~/Pictures)
-//
-// Users can override via screenshot_folder in config.json.
+// defaultScreenshotFolder returns empty on Linux/macOS because those
+// platforms copy screenshots to the clipboard automatically (GNOME,
+// KDE, macOS). Raw clipboard reading via xclip/wl-paste is fast, so
+// screenshots are captured through clipboard polling without needing
+// folder monitoring. Users can set screenshot_folder in config.json
+// to enable folder watching if desired.
 func defaultScreenshotFolder() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	if runtime.GOOS == "darwin" {
-		return filepath.Join(home, "Desktop")
-	}
-	return filepath.Join(home, "Pictures", "Screenshots")
+	return ""
 }
 
 // clipboardPollImage detects the display server and delegates polling
