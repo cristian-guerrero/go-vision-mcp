@@ -1,9 +1,9 @@
 .PHONY: build test run lint clean fmt
 
-BINARY_NAME=vision-mcp.exe
+BINARY_NAME=vision-mcp
 
 build:
-	go build -o $(BINARY_NAME) .
+	go build -ldflags="-s -w" -o $(BINARY_NAME) .
 
 run:
 	go run .
@@ -21,7 +21,7 @@ lint:
 	go vet ./...
 
 clean:
-	rm -f $(BINARY_NAME)
+	rm -f $(BINARY_NAME) vision-mcp-*
 
 fmt:
 	go fmt ./...

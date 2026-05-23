@@ -1,14 +1,10 @@
-name: build
+name: ci
 
 on:
   push:
-    branches:
-      - main
-    tags:
-      - 'v*'
+    branches: [ main ]
   pull_request:
-    branches:
-      - main
+    branches: [ main ]
 
 permissions:
   contents: write
@@ -18,124 +14,82 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
-
-      - name: Lint
-        run: go vet ./...
-
-      - name: Test
-        run: go test ./internal/...
+      - run: go vet ./...
+      - run: go test -v -count=1 ./internal/...
 
   build:
     needs: test
-    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
     strategy:
       matrix:
         include:
           - os: linux
             arch: amd64
-            ext: ""
           - os: linux
             arch: arm64
-            ext: ""
           - os: darwin
             arch: amd64
-            ext: ""
           - os: darwin
             arch: arm64
-            ext: ""
           - os: windows
             arch: amd64
-            ext: .exe
           - os: windows
             arch: arm64
-            ext: .exe
-
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
-
       - name: Build
-        run: go build -o "vision-mcp-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}" -ldflags="-X main.version=${{ github.ref_name }}" .
+        shell: bash
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        run: |
+          ext=""
+          if [ "${{ matrix.os }}" = "windows" ]; then ext=".exe"; fi
+          go build -ldflags="-s -w" -o "vision-mcp-${{ matrix.os }}-${{ matrix.arch }}${ext}" .
+      - uses: actions/upload-artifact@v4
         with:
           name: vision-mcp-${{ matrix.os }}-${{ matrix.arch }}
-          path: vision-mcp-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}
+          path: vision-mcp-${{ matrix.os }}-${{ matrix.arch }}*
 
   release:
     needs: build
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
         with:
-          path: artifacts
-
-      - name: Prepare release assets and body
+          fetch-depth: 0
+      - name: Determine tag
+        id: tag
         shell: bash
         run: |
-          mkdir -p release
-          for dir in artifacts/*/; do
-            name=$(basename "$dir")
-            file=$(find "$dir" -type f)
-            base=$(basename "$file")
-            sha256sum "$file" | awk '{print $1}' > "release/$base.sha256"
-            cp "$file" "release/"
-          done
-
-          {
-            echo "## Vision MCP ${GITHUB_REF_NAME}"
-            echo ""
-            echo "### Platforms"
-            echo "| File | SHA256 |"
-            echo "|------|--------|"
-            for f in release/*.sha256; do
-              name=$(basename "$f" .sha256)
-              hash=$(cat "$f")
-              echo "| \`$name\` | \`$hash\` |"
-            done
-            echo ""
-            echo "### Install"
-            echo "Download the binary for your platform and run:"
-            echo '```bash'
-            echo "./vision-mcp --configure"
-            echo '```'
-          } > release_body.md
-
-      - name: Create Versioned Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+          BUILD_NUMBER="$(git rev-list --count HEAD)"
+          echo "name=b${BUILD_NUMBER}" >> $GITHUB_OUTPUT
+      - uses: actions/download-artifact@v4
         with:
-          name: Release ${{ github.ref_name }}
-          body_path: release_body.md
-          files: release/*
-          draft: false
-          prerelease: false
-
-      - name: Create/Update Latest Release
-        if: github.ref == 'refs/heads/main'
-        uses: ncipollo/release-action@v1
-        with:
-          tag: "latest"
-          name: "Latest Build"
-          bodyFile: release_body.md
-          artifacts: "release/*"
-          allowUpdates: true
-          replacesArtifacts: true
-          makeLatest: true
+          pattern: vision-mcp-*
+          merge-multiple: true
+          path: release
+      - name: Generate checksums
+        working-directory: ./release
+        run: sha256sum * > checksums.txt
+      - name: Create Release
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "$(git log -1 --format='%s')"
+          gh release upload "$TAG" release/* --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
