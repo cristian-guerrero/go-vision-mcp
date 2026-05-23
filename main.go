@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -224,12 +225,7 @@ func quickSetup() {
 		installer.GenerateReadme(installDir)
 	}
 
-	cfg := config.DefaultConfig()
-	hw, err := hardware.DetectHardware()
-	if err == nil {
-		cfg.Quantization = hardware.RecommendQuantization(hw)
-		cfg.LlamaBackend = hardware.RecommendBackend(hw)
-	}
+	cfg := setupConfigWithHardware()
 
 	if detected := config.DetectExistingModels(); detected != nil {
 		if detected.ModelPath != "" {
@@ -259,12 +255,7 @@ func quickSetup() {
 	fmt.Printf("Config saved to %s\n", config.ConfigPath())
 	fmt.Printf("Backend: %s, Quantization: %s\n", cfg.LlamaBackend, cfg.Quantization)
 
-	if cfg.AutoDownload {
-		fmt.Println("Run 'vision-mcp' to start (models will download automatically).")
-	} else {
-		fmt.Println("Run 'vision-mcp' to start.")
-	}
-
+	runAutoDownload(&cfg)
 	promptMCPSetup()
 }
 
@@ -293,13 +284,7 @@ func runWizardCmd() {
 		}
 
 		promptMCPSetup()
-
-		ds := setup.NewDownloadScreen(cfg)
-		p := tea.NewProgram(ds)
-		if _, err := p.Run(); err != nil {
-			log.Printf("Warning: download screen error: %v", err)
-		}
-
+		runAutoDownload(cfg)
 		fmt.Printf("\nSetup complete! Run 'vision-mcp' to start the server.\n")
 	}
 }
@@ -430,6 +415,32 @@ func configureAgents(selected []discover.AgentInfo, exe string) {
 	}
 }
 
+// setupConfigWithHardware creates a default config and applies hardware
+// detection to set the recommended backend and quantization.
+func setupConfigWithHardware() config.Config {
+	cfg := config.DefaultConfig()
+	hw, err := hardware.DetectHardware()
+	if err == nil {
+		cfg.Quantization = hardware.RecommendQuantization(hw)
+		cfg.LlamaBackend = hardware.RecommendBackend(hw)
+	}
+	return cfg
+}
+
+// runAutoDownload shows the TUI download screen when auto-download is
+// enabled and models are not already present.
+func runAutoDownload(cfg *config.Config) {
+	if !cfg.AutoDownload {
+		fmt.Println("Run 'vision-mcp' to start the server.")
+		return
+	}
+	ds := setup.NewDownloadScreen(cfg)
+	p := tea.NewProgram(ds)
+	if _, err := p.Run(); err != nil {
+		log.Printf("Download screen error: %v", err)
+	}
+}
+
 // runInstallCmd copies the binary to ~/.go-mcp/vision/, creates
 // shell launchers, adds the directory to PATH, and writes a config.
 func runInstallCmd() {
@@ -449,19 +460,12 @@ func runInstallCmd() {
 		fmt.Printf("Warning: Could not generate README: %v\n", err)
 	}
 
-	cfg := config.DefaultConfig()
-	hw, err := hardware.DetectHardware()
-	if err == nil {
-		cfg.Quantization = hardware.RecommendQuantization(hw)
-		cfg.LlamaBackend = hardware.RecommendBackend(hw)
-	}
+	cfg := setupConfigWithHardware()
 	cfg.Save()
 
 	fmt.Println("Installation complete!")
 	fmt.Printf("Config saved to %s\n", config.ConfigPath())
-	fmt.Printf("Models will download on first server start.\n")
-	fmt.Printf("Run 'vision-mcp' to start.\n")
-
+	runAutoDownload(&cfg)
 	promptMCPSetup()
 }
 
@@ -712,15 +716,30 @@ func runDownload() {
 }
 
 // downloadProgress returns a ProgressFunc callback that logs download
-// progress (percentage and bytes) to the application log.
+// progress (percentage and bytes) at most once per second to avoid
+// excessive log output and runtime allocator pressure on some Go versions.
 func downloadProgress(label string) download.ProgressFunc {
+	var mu sync.Mutex
+	var lastLog time.Time
+
 	return func(downloaded, total int64) {
 		if total > 0 && downloaded > 0 {
+			mu.Lock()
+			elapsed := time.Since(lastLog)
+			mu.Unlock()
+
+			if elapsed < time.Second && downloaded < total {
+				return
+			}
 			pct := float64(downloaded) / float64(total) * 100
 			log.Printf("%s: %.1f%% (%s/%s)",
 				label, pct,
 				download.FormatBytes(downloaded),
 				download.FormatBytes(total))
+
+			mu.Lock()
+			lastLog = time.Now()
+			mu.Unlock()
 		}
 		if downloaded == total && total > 0 {
 			log.Printf("%s: 100%% (%s) ✓",

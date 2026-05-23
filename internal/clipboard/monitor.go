@@ -34,6 +34,7 @@ type Entry struct {
 	Timestamp    time.Time `json:"timestamp"`
 	OriginalPath string    `json:"original_path,omitempty"`
 	CachedPath   string    `json:"cached_path,omitempty"`
+	Hash         string    `json:"hash,omitempty"`
 }
 
 // Monitor periodically polls the system clipboard for new images,
@@ -45,33 +46,43 @@ type Monitor struct {
 	cancel context.CancelFunc
 	cfg    *config.Config
 
-	entries     []Entry
-	lastHash    string
-	cacheDir    string
-	historyPath string
-	limit       int
-	intervalMs  int
+	entries           []Entry
+	cacheDir          string
+	historyPath       string
+	limit             int
+	intervalMs        int
+	screenshotFolder  string
+	screenshotLastMod time.Time
 }
 
 // NewMonitor creates a clipboard Monitor. Call Start() to begin polling.
 func NewMonitor(cfg *config.Config) *Monitor {
 	cacheDir := cfg.ClipboardCacheDirPath()
+	screenshotFolder := cfg.ScreenshotFolder
+	if screenshotFolder == "" {
+		screenshotFolder = defaultScreenshotFolder()
+	}
 	return &Monitor{
-		cfg:         cfg,
-		cacheDir:    cacheDir,
-		historyPath: filepath.Join(cacheDir, "history.json"),
-		limit:       cfg.ClipboardHistoryLimit,
-		intervalMs:  500,
+		cfg:              cfg,
+		cacheDir:         cacheDir,
+		historyPath:      filepath.Join(cacheDir, "history.json"),
+		limit:            cfg.ClipboardHistoryLimit,
+		intervalMs:       1000,
+		screenshotFolder: screenshotFolder,
 	}
 }
 
-// Start begins the background polling goroutine and loads any previous
-// clipboard history from disk.
+// Start begins the background polling goroutine. History starts empty
+// and is persisted for recovery across restarts.
 func (m *Monitor) Start() {
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	os.MkdirAll(m.cacheDir, 0755)
-	m.loadHistory()
-	log.Printf("Clipboard monitor started (cache: %s, limit: %d)", m.cacheDir, m.limit)
+	if m.screenshotFolder != "" {
+		log.Printf("Clipboard monitor started (cache: %s, limit: %d, screenshots: %s)", m.cacheDir, m.limit, m.screenshotFolder)
+	} else {
+		log.Printf("Clipboard monitor started (cache: %s, limit: %d)", m.cacheDir, m.limit)
+	}
+	m.screenshotLastMod = time.Now()
 	go m.pollLoop()
 }
 
@@ -154,13 +165,11 @@ func (m *Monitor) ClearHistory() {
 	m.purgeCache()
 }
 
-// pollLoop runs every 500ms and checks the clipboard for new images.
-// New images are deduplicated by hash and stored in the ring buffer.
+// pollLoop runs every intervalMs and checks the clipboard for new images
+// and the screenshots folder for new captures.
 func (m *Monitor) pollLoop() {
 	ticker := time.NewTicker(time.Duration(m.intervalMs) * time.Millisecond)
 	defer ticker.Stop()
-
-	lastSeenHash := ""
 
 	for {
 		select {
@@ -170,41 +179,116 @@ func (m *Monitor) pollLoop() {
 		}
 
 		result, err := clipboardPollImage()
-		if err != nil || result == nil {
-			continue
+		if err == nil && result != nil {
+			m.mu.Lock()
+			if !m.isDuplicate(result) {
+				m.saveEntry(result)
+			}
+			m.mu.Unlock()
 		}
 
-		h := m.hashResult(result)
-		if h == lastSeenHash {
-			continue
+		if path := m.checkScreenshotFolder(); path != "" {
+			m.mu.Lock()
+			if !m.isDuplicate(&PollResult{OriginalPath: path}) {
+				m.saveEntry(&PollResult{OriginalPath: path})
+			}
+			m.mu.Unlock()
 		}
-		lastSeenHash = h
-
-		m.mu.Lock()
-		m.saveEntry(result, h)
-		m.mu.Unlock()
 	}
 }
 
-// hashResult produces a content-based hash for deduplication.
-// For file-based entries it hashes the path; for raw data it hashes
-// the bytes (first 16 bytes of SHA-256, base64-encoded).
-func (m *Monitor) hashResult(r *PollResult) string {
-	if r.OriginalPath != "" {
-		hash := sha256.Sum256([]byte(r.OriginalPath))
-		return "file:" + base64.RawURLEncoding.EncodeToString(hash[:16])
+// isDuplicate checks whether a PollResult already exists in the history.
+// File-based entries are compared by path; raw data entries are compared
+// by content hash.
+func (m *Monitor) isDuplicate(result *PollResult) bool {
+	if result.OriginalPath != "" {
+		for _, e := range m.entries {
+			if e.OriginalPath == result.OriginalPath {
+				return true
+			}
+		}
+		return false
 	}
-	if len(r.Data) > 0 {
-		hash := sha256.Sum256(r.Data)
-		return "raw:" + base64.RawURLEncoding.EncodeToString(hash[:16])
+	if len(result.Data) > 0 {
+		h := hashRawData(result.Data)
+		for _, e := range m.entries {
+			if e.Hash == h {
+				return true
+			}
+		}
 	}
+	return false
+}
+
+// hashRawData returns a content hash for raw clipboard data (first 16
+// bytes of SHA-256, base64-encoded).
+func hashRawData(data []byte) string {
+	hash := sha256.Sum256(data)
+	return base64.RawURLEncoding.EncodeToString(hash[:16])
+}
+
+// imageExts are the file extensions treated as images by the screenshot
+// folder monitor.
+var imageExts = map[string]bool{
+	".png": true,
+}
+
+// checkScreenshotFolder checks if a new image was added to the
+// screenshots folder. Returns the path of the newest image, or empty
+// string if nothing changed.
+func (m *Monitor) checkScreenshotFolder() string {
+	if m.screenshotFolder == "" {
+		return ""
+	}
+
+	info, err := os.Stat(m.screenshotFolder)
+	if err != nil {
+		return ""
+	}
+	folderMod := info.ModTime()
+	if !folderMod.After(m.screenshotLastMod) && !m.screenshotLastMod.IsZero() {
+		return ""
+	}
+
+	entries, err := os.ReadDir(m.screenshotFolder)
+	if err != nil {
+		return ""
+	}
+
+	var newestFile string
+	var newestMod time.Time
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(entry.Name()))
+		if !imageExts[ext] {
+			continue
+		}
+		fi, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		mod := fi.ModTime()
+		if mod.After(newestMod) {
+			newestMod = mod
+			newestFile = filepath.Join(m.screenshotFolder, entry.Name())
+		}
+	}
+
+	if newestFile != "" && newestMod.After(m.screenshotLastMod) {
+		m.screenshotLastMod = newestMod
+		log.Printf("Screenshot monitor [%s]: new image -> %s", m.screenshotFolder, newestFile)
+		return newestFile
+	}
+	m.screenshotLastMod = folderMod
 	return ""
 }
 
 // saveEntry inserts a new clipboard entry into the ring buffer. When
 // the buffer exceeds the limit, the oldest entry is evicted and its
 // cache file deleted.
-func (m *Monitor) saveEntry(result *PollResult, hash string) {
+func (m *Monitor) saveEntry(result *PollResult) {
 	if len(m.entries) >= m.limit {
 		oldest := m.entries[0]
 		if oldest.CachedPath != "" {
@@ -226,10 +310,9 @@ func (m *Monitor) saveEntry(result *PollResult, hash string) {
 		e.OriginalPath = result.OriginalPath
 		log.Printf("Clipboard monitor: image #%d -> %s (original file)", index, result.OriginalPath)
 	} else if len(result.Data) > 0 {
-		shortHash := hash
-		if idx := strings.IndexByte(hash, ':'); idx >= 0 {
-			shortHash = hash[idx+1:]
-		}
+		h := hashRawData(result.Data)
+		e.Hash = h
+		shortHash := h
 		if len(shortHash) > 8 {
 			shortHash = shortHash[:8]
 		}
@@ -241,6 +324,8 @@ func (m *Monitor) saveEntry(result *PollResult, hash string) {
 		}
 		e.CachedPath = filePath
 		log.Printf("Clipboard monitor: saved image #%d (%d bytes) -> %s", index, len(result.Data), filePath)
+	} else {
+		return
 	}
 
 	m.entries = append(m.entries, e)
@@ -261,35 +346,6 @@ func (m *Monitor) purgeCache() {
 // historyFilePath returns the path to the persisted history JSON file.
 func (m *Monitor) historyFilePath() string {
 	return m.historyPath
-}
-
-// loadHistory reads and validates the persisted clipboard history
-// from disk. Entries whose files no longer exist are pruned.
-func (m *Monitor) loadHistory() {
-	data, err := os.ReadFile(m.historyPath)
-	if err != nil {
-		return
-	}
-	var entries []Entry
-	if json.Unmarshal(data, &entries) != nil {
-		return
-	}
-	valid := entries[:0]
-	for _, e := range entries {
-		if e.OriginalPath != "" {
-			if _, err := os.Stat(e.OriginalPath); err == nil {
-				valid = append(valid, e)
-			}
-		} else if e.CachedPath != "" {
-			if _, err := os.Stat(e.CachedPath); err == nil {
-				valid = append(valid, e)
-			}
-		}
-	}
-	m.entries = valid
-	if len(entries) != len(valid) {
-		m.saveHistory()
-	}
 }
 
 // saveHistory writes the current entry list to disk as JSON.

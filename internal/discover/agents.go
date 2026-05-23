@@ -124,7 +124,7 @@ func detectKilo(binaryPath string) AgentInfo {
 func detectOpenCode(binaryPath string) AgentInfo {
 	info := AgentInfo{Type: AgentOpenCode, Name: "OpenCode"}
 
-	configPath := filepath.Join(homeDir(), ".config", "opencode", "opencode.json")
+	configPath := openCodeConfigPath()
 	info.ConfigPath = configPath
 
 	if _, err := os.Stat(configPath); err != nil {
@@ -137,6 +137,7 @@ func detectOpenCode(binaryPath string) AgentInfo {
 		return info
 	}
 
+	data = normalizeJSONC(data)
 	var cfg OpenCodeConfig
 	if json.Unmarshal(data, &cfg) == nil {
 		if _, exists := cfg.MCP["vision-mcp"]; exists {
@@ -145,6 +146,16 @@ func detectOpenCode(binaryPath string) AgentInfo {
 	}
 
 	return info
+}
+
+// openCodeConfigPath returns the path to OpenCode's config file,
+// preferring opencode.jsonc (JSONC format) over opencode.json.
+func openCodeConfigPath() string {
+	dir := filepath.Join(homeDir(), ".config", "opencode")
+	if _, err := os.Stat(filepath.Join(dir, "opencode.jsonc")); err == nil {
+		return filepath.Join(dir, "opencode.jsonc")
+	}
+	return filepath.Join(dir, "opencode.json")
 }
 
 func detectPi(binaryPath string) AgentInfo {
@@ -308,13 +319,14 @@ var coreFields = map[string]bool{
 }
 
 func configureOpenCodeMCP(agent AgentInfo, binaryPath string) error {
-	path := filepath.Join(homeDir(), ".config", "opencode", "opencode.json")
+	path := openCodeConfigPath()
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 
+	data = normalizeJSONC(data)
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err

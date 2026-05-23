@@ -12,6 +12,7 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/config"
 	"github.com/cristian-guerrero/go-vision-mcp/internal/discover"
 	"github.com/cristian-guerrero/go-vision-mcp/internal/hardware"
+	mcptools "github.com/cristian-guerrero/go-vision-mcp/internal/mcp"
 )
 
 // Wizard implements a 5-step Bubble Tea model: Model → Backend →
@@ -60,6 +61,20 @@ func NewWizard() *Wizard {
 		downloadDir:   config.InstallDir(),
 		clipMonOn:     false,
 	}
+}
+
+// orderedBackends returns the backend list with the recommended one
+// first so the TUI cursor starts on it.
+func orderedBackends(recommended string) []string {
+	all := []string{"cuda", "vulkan", "metal", "cpu"}
+	var result []string
+	result = append(result, recommended)
+	for _, b := range all {
+		if b != recommended {
+			result = append(result, b)
+		}
+	}
+	return result
 }
 
 // RunWizard creates and runs the interactive TUI wizard, returning the
@@ -140,7 +155,7 @@ func (w *Wizard) handleSelection(idx int) {
 			w.selectedModel = idx
 		}
 	case 1:
-		backends := []string{"cuda", "cpu", "vulkan", "metal"}
+		backends := orderedBackends(w.cfg.LlamaBackend)
 		if idx >= 0 && idx < len(backends) {
 			w.backend = backends[idx]
 		}
@@ -275,21 +290,24 @@ func (w *Wizard) viewBackend() string {
 	var s strings.Builder
 	s.WriteString("Select llama-server backend:\n\n")
 
-	backends := []struct {
+	type backendInfo struct {
 		key   string
 		label string
 		desc  string
-	}{
-		{"cuda", "CUDA", "NVIDIA GPU acceleration (fastest)"},
-		{"cpu", "CPU", "Works on any system (slower)"},
-		{"vulkan", "Vulkan", "AMD/Intel GPU via Vulkan"},
-		{"metal", "Metal", "Apple Silicon / Metal"},
+	}
+	allBackends := map[string]backendInfo{
+		"cuda":   {"cuda", "CUDA", "NVIDIA GPU acceleration (fastest)"},
+		"vulkan": {"vulkan", "Vulkan", "AMD/Intel/NVIDIA GPU via Vulkan"},
+		"metal":  {"metal", "Metal", "Apple Silicon / Metal"},
+		"cpu":    {"cpu", "CPU", "Works on any system (slower)"},
 	}
 
-	w.stepCount = len(backends)
+	ordered := orderedBackends(w.cfg.LlamaBackend)
+	w.stepCount = len(ordered)
 	recommended := w.cfg.LlamaBackend
 
-	for i, b := range backends {
+	for i, key := range ordered {
+		b := allBackends[key]
 		bullet := "  ○"
 		name := b.label
 		desc := b.desc
@@ -353,6 +371,10 @@ func (w *Wizard) viewClipboardMonitor() string {
 	s.WriteString("purged when you close the MCP server. This does NOT send data\n")
 	s.WriteString("anywhere; images stay on your machine.\n\n")
 
+	if depMsg := mcptools.CheckClipboardDeps(); depMsg != "" {
+		s.WriteString(WarningStyle.Render("! "+depMsg) + "\n\n")
+	}
+
 	options := []struct {
 		label string
 		desc  string
@@ -401,6 +423,12 @@ func (w *Wizard) viewSummary() string {
 			HighlightStyle.Render(clipMonStatus),
 		),
 	))
+
+	if w.clipMonOn {
+		if depMsg := mcptools.CheckClipboardDeps(); depMsg != "" {
+			s.WriteString("\n  " + WarningStyle.Render("! "+depMsg) + "\n")
+		}
+	}
 
 	modelSize := ""
 	for _, q := range hardware.AvailableQuantizations() {

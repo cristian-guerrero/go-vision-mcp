@@ -8,6 +8,16 @@ import (
 	"strings"
 )
 
+// defaultScreenshotFolder returns empty on Linux/macOS because those
+// platforms copy screenshots to the clipboard automatically (GNOME,
+// KDE, macOS). Raw clipboard reading via xclip/wl-paste is fast, so
+// screenshots are captured through clipboard polling without needing
+// folder monitoring. Users can set screenshot_folder in config.json
+// to enable folder watching if desired.
+func defaultScreenshotFolder() string {
+	return ""
+}
+
 // clipboardPollImage detects the display server and delegates polling
 // to xclip (X11) or wl-paste (Wayland). Returns nil when no image is
 // in the clipboard.

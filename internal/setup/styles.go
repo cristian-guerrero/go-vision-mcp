@@ -83,6 +83,10 @@ var (
 				Bold(true).
 				SetString("RECOMMENDED")
 
+	WarningStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("214")).
+			Bold(true)
+
 	BadgeWarning = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("214")).
 			SetString("WARNING")

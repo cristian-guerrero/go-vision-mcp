@@ -13,6 +13,7 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/discover"
 	"github.com/cristian-guerrero/go-vision-mcp/internal/download"
 	"github.com/cristian-guerrero/go-vision-mcp/internal/hardware"
+	mcptools "github.com/cristian-guerrero/go-vision-mcp/internal/mcp"
 )
 
 // ManualWizard implements an advanced Bubble Tea wizard that lets users
@@ -78,8 +79,10 @@ func loadOrDefaultConfig() *config.Config {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		d := config.DefaultConfig()
+		config.ApplyHardwareDefaults(&d) //nolint:errcheck
 		return &d
 	}
+	config.ApplyHardwareDefaults(cfg) //nolint:errcheck
 	return cfg
 }
 
@@ -351,6 +354,10 @@ func (w *ManualWizard) saveConfig() {
 		w.cfg.LlamaServerPath = w.llamaServerPath
 	}
 	w.cfg.ClipboardMonitorEnabled = w.clipMonOn
+
+	// Ensure hardware-appropriate backend and quantization
+	// (overwrites whatever was in config with detected recommendations).
+	config.ApplyHardwareDefaults(w.cfg) //nolint:errcheck
 }
 
 func (w *ManualWizard) viewSaveAndClipboard() string {
@@ -373,6 +380,10 @@ func (w *ManualWizard) viewSaveAndClipboard() string {
 	s.WriteString("Clipboard Monitoring\n\n")
 	s.WriteString("Keep a history of copied images for multi-image analysis.\n")
 	s.WriteString("History is cleared when the server stops.\n\n")
+
+	if depMsg := mcptools.CheckClipboardDeps(); depMsg != "" {
+		s.WriteString(WarningStyle.Render("! "+depMsg) + "\n\n")
+	}
 
 	options := []struct {
 		label string
@@ -707,6 +718,9 @@ func (w *ManualWizard) viewComplete() string {
 	}
 	if w.clipMonOn {
 		s.WriteString(fmt.Sprintf("  %s Clipboard monitoring: Enabled\n", CheckMark))
+		if depMsg := mcptools.CheckClipboardDeps(); depMsg != "" {
+			s.WriteString(WarningStyle.Render("  ! " + depMsg) + "\n\n")
+		}
 	}
 
 	s.WriteString(fmt.Sprintf("\n  Config: %s\n", config.ConfigPath()))

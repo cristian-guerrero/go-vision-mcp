@@ -9,15 +9,16 @@ func TestRecommendQuantization(t *testing.T) {
 		name     string
 		vramGB   float64
 		ramGB    float64
+		present  bool
 		expected string
 	}{
-		{"high vram", 8, 16, "Q4_K_M"},
-		{"mid vram", 4, 12, "Q4_K_M"},
-		{"low vram mid ram", 3, 8, "Q4_K_M"},
-		{"very low", 1, 4, "UD-IQ3_XXS"},
-		{"high ram only", 0, 16, "Q4_K_M"},
-		{"mid ram only", 0, 10, "Q4_K_M"},
-		{"low ram only", 0, 6, "UD-IQ3_XXS"},
+		{"high vram", 8, 16, true, "Q4_K_M"},
+		{"mid vram", 6, 16, true, "IQ4_XS"},
+		{"low vram", 4, 12, true, "IQ4_XS"},
+		{"very low vram", 2, 8, true, "UD-IQ3_XXS"},
+		{"no gpu high ram", 0, 16, false, "Q4_K_M"},
+		{"no gpu mid ram", 0, 10, false, "IQ4_XS"},
+		{"no gpu low ram", 0, 6, false, "UD-IQ3_XXS"},
 	}
 
 	for _, tt := range tests {
@@ -25,7 +26,8 @@ func TestRecommendQuantization(t *testing.T) {
 			hw := &HardwareProfile{
 				TotalRAM: uint64(tt.ramGB * 1024 * 1024 * 1024),
 				GPU: GPUInfo{
-					VRAM: uint64(tt.vramGB * 1024 * 1024 * 1024),
+					Present: tt.present,
+					VRAM:    uint64(tt.vramGB * 1024 * 1024 * 1024),
 				},
 			}
 
@@ -44,7 +46,7 @@ func TestRecommendBackend(t *testing.T) {
 		present bool
 		in      []string
 	}{
-		{"nvidia", "nvidia", true, []string{"cuda"}},
+		{"nvidia", "nvidia", true, []string{"cuda", "vulkan", "cpu"}},
 		{"apple", "apple", true, []string{"metal"}},
 	}
 
