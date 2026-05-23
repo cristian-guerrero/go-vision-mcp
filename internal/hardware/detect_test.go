@@ -47,7 +47,7 @@ func TestRecommendBackend(t *testing.T) {
 		in      []string
 	}{
 		{"nvidia", "nvidia", true, []string{"cuda", "vulkan", "cpu"}},
-		{"apple", "apple", true, []string{"metal"}},
+		{"apple", "apple", true, []string{"metal", "vulkan"}},
 	}
 
 	for _, tt := range tests {

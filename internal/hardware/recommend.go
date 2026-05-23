@@ -13,29 +13,21 @@ type QuantOption struct {
 }
 
 // RecommendBackend selects the best llama.cpp backend based on
-// detected GPU vendor: CUDA (NVIDIA), Metal (Apple), Vulkan (AMD/Intel),
-// or CPU fallback.
+// detected GPU vendor: CUDA (NVIDIA), Metal (Apple), or CPU fallback.
 //
 // On Linux, CUDA pre-built binaries are not published by llama.cpp, so
-// NVIDIA GPUs fall back to Vulkan (if available) or CPU.
+// the Vulkan build is always used — llama-server itself falls back to
+// CPU transparently if no Vulkan driver is available.
 func RecommendBackend(hw *HardwareProfile) string {
+	if runtime.GOOS == "linux" {
+		return "vulkan"
+	}
 	if hw.GPU.Present {
 		switch hw.GPU.Vendor {
 		case "nvidia":
-			if runtime.GOOS == "linux" {
-				if VulkanAvailable() {
-					return "vulkan"
-				}
-				return "cpu"
-			}
 			return "cuda"
 		case "apple":
 			return "metal"
-		case "amd", "intel":
-			if VulkanAvailable() {
-				return "vulkan"
-			}
-			return "cpu"
 		}
 	}
 	if VulkanAvailable() {
