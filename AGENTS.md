@@ -6,12 +6,12 @@
 package main  // main.go at root (not cmd/)
 ```
 
-Build: `go build -o vision-mcp.exe .`
+Build: `go build -ldflags="-s -w" -o vision-mcp .`
 
 ## Commands
 
 ```bash
-make build    # go build -o vision-mcp.exe .
+make build    # go build -ldflags="-s -w" -o vision-mcp .
 make test     # go test ./internal/...
 make lint     # go vet ./...
 make fmt      # go fmt ./...
