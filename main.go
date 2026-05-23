@@ -30,7 +30,7 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/setup"
 )
 
-var version = "1.0.0"
+var version = "dev"
 
 func main() {
 	runConfigure := flag.Bool("configure", false, "Open interactive TUI wizard")

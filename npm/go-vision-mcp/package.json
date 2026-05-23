@@ -1,0 +1,38 @@
+{
+  "name": "go-vision-mcp",
+  "version": "0.5.0",
+  "description": "MCP server for vision analysis using local GGUF models via llama.cpp",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cristian-guerrero/go-vision-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cristian-guerrero/go-vision-mcp/issues"
+  },
+  "homepage": "https://github.com/cristian-guerrero/go-vision-mcp#readme",
+  "keywords": [
+    "mcp",
+    "vision",
+    "llama",
+    "gguf",
+    "model-context-protocol",
+    "llm",
+    "image-analysis"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "preferUnplugged": true,
+  "bin": {
+    "vision-mcp": "./bin/cli.js"
+  },
+  "optionalDependencies": {
+    "go-vision-mcp-win32-x64": "0.5.0",
+    "go-vision-mcp-win32-arm64": "0.5.0",
+    "go-vision-mcp-darwin-x64": "0.5.0",
+    "go-vision-mcp-darwin-arm64": "0.5.0",
+    "go-vision-mcp-linux-x64": "0.5.0",
+    "go-vision-mcp-linux-arm64": "0.5.0"
+  }
+}

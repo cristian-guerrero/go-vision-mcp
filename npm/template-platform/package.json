@@ -1,0 +1,13 @@
+{
+  "name": "{{NAME}}",
+  "version": "{{VERSION}}",
+  "description": "Platform-specific binary for go-vision-mcp ({{OS}}-{{ARCH}})",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cristian-guerrero/go-vision-mcp.git"
+  },
+  "os": ["{{OS}}"],
+  "cpu": ["{{ARCH}}"],
+  "preferUnplugged": true
+}

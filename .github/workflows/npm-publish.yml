@@ -1,0 +1,95 @@
+name: npm publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (semver, e.g. 0.5.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Build Go binaries
+        shell: bash
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          mkdir -p dist/binaries
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.version=${VERSION}" -o dist/binaries/go-vision-mcp-win32-x64.exe .
+          GOOS=windows GOARCH=arm64 go build -ldflags="-s -w -X main.version=${VERSION}" -o dist/binaries/go-vision-mcp-win32-arm64.exe .
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${VERSION}" -o dist/binaries/go-vision-mcp-darwin-x64 .
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${VERSION}" -o dist/binaries/go-vision-mcp-darwin-arm64 .
+          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${VERSION}" -o dist/binaries/go-vision-mcp-linux-x64 .
+          GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X main.version=${VERSION}" -o dist/binaries/go-vision-mcp-linux-arm64 .
+
+      - name: Generate platform npm packages
+        shell: bash
+        run: node npm/scripts/build-platform-packages.js ${{ github.event.inputs.version }} dist/binaries
+
+      - name: Update meta-package version
+        shell: bash
+        run: |
+          node -e "
+            var p = require('./npm/go-vision-mcp/package.json');
+            p.version = '${{ github.event.inputs.version }}';
+            Object.keys(p.optionalDependencies).forEach(function(k) {
+              p.optionalDependencies[k] = '${{ github.event.inputs.version }}';
+            });
+            require('fs').writeFileSync('./npm/go-vision-mcp/package.json', JSON.stringify(p, null, 2) + '\n');
+          "
+
+      - name: Publish platform packages to npm
+        shell: bash
+        run: |
+          for dir in npm/go-vision-mcp-*; do
+            if [ -d "$dir" ]; then
+              echo "Publishing $dir..."
+              (cd "$dir" && npm publish --access public)
+            fi
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish meta-package to npm
+        shell: bash
+        working-directory: npm/go-vision-mcp
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create checksums
+        shell: bash
+        working-directory: dist/binaries
+        run: sha256sum * > checksums.txt
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="go-vision-mcp@${{ github.event.inputs.version }}"
+          gh release create "$TAG" \
+            --title "go-vision-mcp v${{ github.event.inputs.version }}" \
+            --notes "Published version ${{ github.event.inputs.version }} to npm" \
+            --target "${{ github.sha }}" || echo "Release already exists, skipping..."
+          gh release upload "$TAG" dist/binaries/* --clobber
