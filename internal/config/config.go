@@ -41,6 +41,23 @@ type Config struct {
 	ClipboardHistoryLimit   int    `json:"clipboard_history_limit"`
 	ClipboardCacheDir       string `json:"clipboard_cache_dir"`
 	ScreenshotFolder        string `json:"screenshot_folder"`
+
+	// Backend selects the inference engine: "local" (llama-server)
+	// or "gemini" (Google Gemini API). Default: "local".
+	Backend string `json:"backend"`
+
+	// Gemini holds Google Gemini API authentication and model settings.
+	Gemini GeminiConfig `json:"gemini"`
+}
+
+// GeminiConfig configures the Google Gemini API backend.
+type GeminiConfig struct {
+	// APIKey is a Gemini API key from aistudio.google.com/app/api-keys.
+	APIKey string `json:"api_key,omitempty"`
+
+	// Model is the Gemini model name for vision tasks,
+	// e.g. "gemini-3.5-flash".
+	Model string `json:"model,omitempty"`
 }
 
 // DefaultConfig returns a Config pre-filled with sensible defaults:
@@ -73,6 +90,10 @@ func DefaultConfig() Config {
 		ClipboardHistoryLimit:   5,
 		ClipboardCacheDir:       "",
 		ScreenshotFolder:        "",
+		Backend:                 "local",
+		Gemini: GeminiConfig{
+			Model: "gemini-3.5-flash",
+		},
 	}
 }
 
