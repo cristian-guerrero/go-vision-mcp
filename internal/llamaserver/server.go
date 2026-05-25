@@ -1,6 +1,7 @@
 // Package llamaserver manages the llama-server sidecar process.
-// It starts the binary as a subprocess, waits for its health endpoint,
-// and provides graceful shutdown with SIGTERM → 3s → SIGKILL.
+// It starts the binary as a subprocess with flags for KV cache control
+// and idle VRAM offloading (--sleep-idle-seconds), waits for its health
+// endpoint, and provides graceful shutdown with SIGTERM → 3s → SIGKILL.
 package llamaserver
 
 import (
@@ -28,42 +29,49 @@ type Options struct {
 	BinaryName   string
 	KvCacheTypeK string
 	KvCacheTypeV string
+	// IdleTimeout is the number of idle minutes before llama-server
+	// unloads the model from VRAM (passed as --sleep-idle-seconds * 60).
+	// Zero disables automatic model unloading.
+	IdleTimeout int
 }
 
 // Server wraps a llama-server subprocess. It holds the command,
 // arguments, and health-check state.
 type Server struct {
-	cmd    *exec.Cmd
-	port   int
-	mmproj string
-	model  string
-	ngl    int
-	nctx   int
-	flash  bool
-	bin    string
-	ctk    string
-	ctv    string
+	cmd         *exec.Cmd
+	port        int
+	mmproj      string
+	model       string
+	ngl         int
+	nctx        int
+	flash       bool
+	bin         string
+	ctk         string
+	ctv         string
+	idleTimeout int
 }
 
 // New creates a Server but does not start it.
 func New(opts Options) *Server {
 	return &Server{
-		model:  opts.ModelPath,
-		mmproj: opts.MMProjPath,
-		port:   opts.Port,
-		ngl:    opts.NGL,
-		nctx:   opts.NCtx,
-		flash:  opts.FlashAttn,
-		bin:    opts.BinaryName,
-		ctk:    opts.KvCacheTypeK,
-		ctv:    opts.KvCacheTypeV,
+		model:       opts.ModelPath,
+		mmproj:      opts.MMProjPath,
+		port:        opts.Port,
+		ngl:         opts.NGL,
+		nctx:        opts.NCtx,
+		flash:       opts.FlashAttn,
+		bin:         opts.BinaryName,
+		ctk:         opts.KvCacheTypeK,
+		ctv:         opts.KvCacheTypeV,
+		idleTimeout: opts.IdleTimeout,
 	}
 }
 
 // Start launches llama-server as a subprocess with the configured
 // arguments (model, mmproj, port, GPU layers, context size, flash
-// attention, KV cache quantization). It then polls GET /health up to
-// 60 seconds until the server responds 200 OK.
+// attention, KV cache quantization, -cram 0, and --sleep-idle-seconds
+// when idle_timeout > 0). It then polls GET /health up to 60 seconds
+// until the server responds 200 OK.
 func (s *Server) Start(ctx context.Context) error {
 	binary := s.bin
 	if binary == "" {
@@ -102,6 +110,10 @@ func (s *Server) Start(ctx context.Context) error {
 	args = append(args, "--jinja")
 	args = append(args, "--reasoning", "off")
 	args = append(args, "--no-webui")
+	args = append(args, "-cram", "0")
+	if s.idleTimeout > 0 {
+		args = append(args, "--sleep-idle-seconds", fmt.Sprintf("%d", s.idleTimeout*60))
+	}
 
 	log.Printf("Executing: %s %v", binary, args)
 

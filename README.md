@@ -1,10 +1,14 @@
 # Vision MCP
 
-A Go-based MCP (Model Context Protocol) server that enables vision analysis for LLMs without native vision capabilities using a local vision model via llama.cpp.
+A Go-based MCP (Model Context Protocol) server that enables vision analysis for LLMs without native vision capabilities. Supports **two backends**:
+
+- **Local** — runs a vision model via llama.cpp entirely on your machine. Private, no data leaves your PC. Auto-downloads models from HuggingFace.
+- **Gemini API** — uses Google Gemini's free tier. No model download, no GPU needed. Just paste an API key from Google AI Studio.
 
 ## Features
 
 - **Nine MCP tools** — image analysis from URLs, local files, clipboard, and clipboard history (Windows / Linux with X11 or Wayland)
+- **Dual backend** — choose between fully private local inference or cloud Gemini API (free tier)
 - **Clipboard history monitor** — optionally polls clipboard for images, keeps a configurable history for multi-image comparison (e.g. "the first image is the before, the third is the after")
 - **Lazy loading** — model downloads + llama-server starts only on first tool call, saves bandwidth/VRAM when idle
 - **Auto-download** — downloads models from HuggingFace and llama-server binaries on demand
@@ -37,18 +41,42 @@ Requirements depend on the selected model and quantization. The default model is
 
 ## Quick Start
 
+### Option A: Local (private, auto-download)
+
 The tool automatically detects your GPU, RAM, and VRAM, then selects the best model and quantization for your system.
 
-```bash
-# Build from source
-go build -o vision-mcp.exe .
+**1. Download the binary** from the [latest release](https://github.com/cristian-guerrero/go-vision-mcp/releases) — or build it yourself:
 
+```bash
+go build -o vision-mcp.exe .
+```
+
+**2. Run it:**
+
+```bash
 # Quick setup — auto-detects hardware, downloads model, starts server
 vision-mcp.exe
 
 # Or use the interactive setup wizard
 vision-mcp.exe --configure
 ```
+
+### Option B: Gemini API (free tier, no download)
+
+Use Google Gemini's free tier — no model download, no GPU needed, no data stored locally.
+
+```bash
+# Configure with a Gemini API key
+vision-mcp.exe --gemini
+```
+
+You will be prompted to paste an API key. Get one for free at:
+
+> **https://aistudio.google.com/app/api-keys**
+
+Click *"Create API Key"* and copy the generated key. Once saved, run `vision-mcp.exe` normally to start the MCP server with the Gemini backend.
+
+To switch back to local mode, either run `--configure` again or edit `config.json` and set `"backend": "local"`. The API key is preserved in the config so you can switch freely.
 
 ## CLI Reference
 
@@ -58,6 +86,7 @@ vision-mcp.exe --configure
 | `--configure` | Open interactive TUI setup wizard |
 | `--install` | Quick non-interactive install with auto-detected defaults |
 | `--manual` | Manual config wizard (LM Studio, custom paths) |
+| `--gemini` | Configure Gemini API key (free tier) |
 | `--free` | Free GPU memory — stop llama-server on port 8001 |
 | `--status` | Show hardware, model, and config status |
 | `--download` | Download/verify models without starting server |
@@ -96,6 +125,9 @@ Configuration is stored at `~/.go-mcp/vision/config.json` (Windows: `%USERPROFIL
 | `mmproj_path` | `""` | Override: exact path to mmproj file |
 | `llama_server_path` | `""` | Override: exact path to llama-server binary |
 | `llama_server_mode` | `""` | Mode: `""` (PATH then download), `"auto"` (download), `"custom"` (use path) |
+| `backend` | `"local"` | Inference engine: `"local"` (llama-server) or `"gemini"` (Gemini API) |
+| `gemini.api_key` | `""` | Gemini API key from [AI Studio](https://aistudio.google.com/app/api-keys) |
+| `gemini.model` | `"gemini-3.5-flash"` | Gemini model name (e.g. `gemini-3.5-flash`, `gemini-2.5-flash`) |
 
 ### Override behavior
 

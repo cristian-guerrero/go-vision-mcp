@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -22,6 +23,7 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/config"
 	"github.com/cristian-guerrero/go-vision-mcp/internal/discover"
 	"github.com/cristian-guerrero/go-vision-mcp/internal/download"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/gemini"
 	"github.com/cristian-guerrero/go-vision-mcp/internal/hardware"
 	"github.com/cristian-guerrero/go-vision-mcp/internal/installer"
 	"github.com/cristian-guerrero/go-vision-mcp/internal/llamaserver"
@@ -43,8 +45,14 @@ func main() {
 	freeMemory := flag.Bool("free", false, "Free GPU memory by unloading the model")
 	manualConfig := flag.Bool("manual", false, "Configure with existing models and llama-server")
 	mcpSetup := flag.Bool("mcp-setup", false, "Auto-configure MCP for installed agents (Kilo Code, OpenCode, PI Agent)")
+	runGeminiCfg := flag.Bool("gemini", false, "Configure Gemini API key (instructions provided)")
 	analyzeClipboard := flag.String("analyze-clipboard", "", "Analyze the clipboard image with a custom prompt")
 	flag.Parse()
+
+	if *runGeminiCfg {
+		runGeminiSetup()
+		return
+	}
 
 	if *showVersion {
 		fmt.Println("vision-mcp v" + version)
@@ -257,6 +265,53 @@ func quickSetup() {
 
 	runAutoDownload(&cfg)
 	promptMCPSetup()
+}
+
+// runGeminiSetup prompts for a Gemini API key and saves it.
+// It shows instructions on where to get the key.
+func runGeminiSetup() {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("Error loading config: %v", err)
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Println()
+	fmt.Println("=== Google Gemini API Setup ===")
+	fmt.Println()
+	fmt.Println("  You need a Gemini API key from Google AI Studio.")
+	fmt.Println()
+	fmt.Println("  1. Open this URL in your browser:")
+	fmt.Println("     https://aistudio.google.com/app/api-keys")
+	fmt.Println()
+	fmt.Println("  2. Click 'Create API Key'")
+	fmt.Println("  3. Copy the generated key")
+	fmt.Println()
+	fmt.Print("  Paste your API key: ")
+
+	key, _ := reader.ReadString('\n')
+	key = strings.TrimSpace(key)
+
+	if key == "" {
+		fmt.Println("  No key entered. Exiting.")
+		return
+	}
+
+	cfg.Gemini.APIKey = key
+	cfg.Backend = "gemini"
+	cfg.AutoDownload = false
+
+	if cfg.Gemini.Model == "" {
+		cfg.Gemini.Model = gemini.DefaultModel
+	}
+
+	if err := cfg.Save(); err != nil {
+		log.Fatalf("Error saving config: %v", err)
+	}
+
+	fmt.Printf("\n  ✓ API Key saved! Backend set to 'gemini'.\n")
+	fmt.Println("  Run 'vision-mcp' to start the MCP server with Gemini.")
 }
 
 // runWizardCmd launches the interactive 5-step TUI wizard for
@@ -574,7 +629,8 @@ func resolveLlamaServer(cfg *config.Config) (binPath, newPath string, err error)
 // runServer starts the MCP server in STDIO mode. It delegates all
 // async initialization (hardware detection, port reuse, model download,
 // lazy llama-server start) and lifecycle management (idle timeout,
-// signal handling) to ServerManager.
+// signal handling) to ServerManager for the local backend. For the
+// Gemini backend, it creates a GeminiClient and sets tools ready immediately.
 func runServer() {
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -583,6 +639,12 @@ func runServer() {
 	cfg.Save()
 
 	mcpServer := server.NewMCPServer("vision-mcp", "1.0.0")
+
+	if cfg.Backend == "gemini" {
+		runGeminiServer(cfg, mcpServer)
+		return
+	}
+
 	handler := mcptools.NewToolHandler("", cfg.CustomPrompt)
 	handler.RegisterTools(mcpServer)
 
@@ -601,10 +663,47 @@ func runServer() {
 	handler.Stop()
 }
 
+// runGeminiServer starts the MCP server using the Gemini API backend.
+// Unlike the local backend, it does not start llama-server, download
+// models, or manage idle timeouts. The Gemini client is ready immediately.
+func runGeminiServer(cfg *config.Config, mcpServer *server.MCPServer) {
+	log.Printf("Starting with Gemini backend (model: %s)", cfg.Gemini.Model)
+
+	geminiClient := gemini.NewClient(
+		cfg.Gemini.APIKey,
+		nil,
+		"",
+		cfg.Gemini.Model,
+		nil,
+	)
+
+	handler := mcptools.NewToolHandler("", cfg.CustomPrompt)
+	handler.SetGeminiClient(geminiClient)
+	handler.SetReady()
+	handler.RegisterTools(mcpServer)
+
+	var clipMon clipboard.MonitorInterface
+	if cfg.ClipboardMonitorEnabled {
+		clipMon = clipboard.NewMonitor(cfg)
+		clipMon.Start()
+		handler.SetClipboardMonitor(clipMon)
+		log.Printf("Clipboard monitor enabled (history limit: %d)", cfg.ClipboardHistoryLimit)
+	}
+
+	log.Printf("MCP server ready (Gemini backend, STDIO mode)")
+	if err := server.ServeStdio(mcpServer); err != nil {
+		log.Printf("MCP server error: %v", err)
+	}
+
+	log.Printf("MCP client disconnected, cleaning up...")
+	handler.Stop()
+}
+
 // runAnalyzeClipboard is the --analyze-clipboard CLI entrypoint.
 // It reads the clipboard image, ensures models and llama-server are
 // ready (downloading if needed), starts llama-server, and prints the
-// model's answer to stdout.
+// model's answer to stdout. For Gemini backend, it uses the Gemini
+// API directly.
 func runAnalyzeClipboard(prompt string) {
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -614,12 +713,25 @@ func runAnalyzeClipboard(prompt string) {
 	cfg.Save()
 
 	fmt.Fprintf(os.Stderr, "Checking clipboard...\n")
-	if _, err := mcptools.ClipboardImageDataURI(); err != nil {
+	dataURI, err := mcptools.ClipboardImageDataURI()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Clipboard error: %v\n", err)
 		os.Exit(1)
 	}
 
 	ctx := context.Background()
+
+	if cfg.Backend == "gemini" {
+		gc := gemini.NewClient(cfg.Gemini.APIKey, nil, "", cfg.Gemini.Model, nil)
+		fmt.Fprintf(os.Stderr, "Analyzing with Gemini (%s)...\n", cfg.Gemini.Model)
+		result, err := gc.ChatCompletion(ctx, prompt, dataURI)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Gemini analysis failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(result)
+		return
+	}
 
 	fmt.Fprintf(os.Stderr, "Checking models...\n")
 	if err := download.EnsureModels(cfg, downloadProgress("Model")); err != nil {
@@ -670,32 +782,42 @@ func displayStatus() {
 	fmt.Println("Vision MCP Status")
 	fmt.Println("=================")
 	fmt.Printf("Config:       %s\n", config.ConfigPath())
-	fmt.Printf("Quantization: %s\n", cfg.Quantization)
-	fmt.Printf("MMProj:       %s\n", cfg.MMProj)
-	fmt.Printf("Backend:      %s\n", cfg.LlamaBackend)
-	fmt.Printf("Port:         %d\n", cfg.Port)
-	fmt.Printf("Idle timeout: %d min\n", cfg.IdleTimeout)
-	fmt.Printf("Model path:   %s\n", cfg.ModelPath())
-	fmt.Printf("MMProj path:  %s\n", cfg.MMProjPath())
+	fmt.Printf("Engine:       %s\n", cfg.Backend)
 
-	hw, err := hardware.DetectHardware()
-	if err == nil {
-		fmt.Println()
-		fmt.Println("Hardware:")
-		fmt.Printf("  RAM:  %.1f GB (available: %.1f GB)\n",
-			float64(hw.TotalRAM)/(1024*1024*1024),
-			float64(hw.AvailableRAM)/(1024*1024*1024))
-		if hw.GPU.Present {
-			fmt.Printf("  GPU:  %s (VRAM: %.1f GB, driver: %s)\n",
-				hw.GPU.Vendor,
-				float64(hw.GPU.VRAM)/(1024*1024*1024),
-				hw.GPU.DriverVer)
-		} else {
-			fmt.Println("  GPU:  none (CPU only)")
+	if cfg.Backend == "gemini" {
+		authMethod := "not configured"
+		if cfg.Gemini.APIKey != "" {
+			authMethod = "API Key"
 		}
-		fmt.Printf("  Disk: %.1f GB free\n", float64(hw.FreeDisk)/(1024*1024*1024))
-		fmt.Printf("  Recommended backend: %s\n", hardware.RecommendBackend(hw))
-		fmt.Printf("  Recommended quantization: %s\n", hardware.RecommendQuantization(hw))
+		fmt.Printf("Auth method:  %s\n", authMethod)
+		fmt.Printf("Model:        %s\n", cfg.Gemini.Model)
+		fmt.Println()
+	} else {
+		fmt.Printf("Backend:      %s\n", cfg.LlamaBackend)
+		fmt.Printf("Port:         %d\n", cfg.Port)
+		fmt.Printf("Idle timeout: %d min\n", cfg.IdleTimeout)
+		fmt.Printf("Model path:   %s\n", cfg.ModelPath())
+		fmt.Printf("MMProj path:  %s\n", cfg.MMProjPath())
+
+		hw, err := hardware.DetectHardware()
+		if err == nil {
+			fmt.Println()
+			fmt.Println("Hardware:")
+			fmt.Printf("  RAM:  %.1f GB (available: %.1f GB)\n",
+				float64(hw.TotalRAM)/(1024*1024*1024),
+				float64(hw.AvailableRAM)/(1024*1024*1024))
+			if hw.GPU.Present {
+				fmt.Printf("  GPU:  %s (VRAM: %.1f GB, driver: %s)\n",
+					hw.GPU.Vendor,
+					float64(hw.GPU.VRAM)/(1024*1024*1024),
+					hw.GPU.DriverVer)
+			} else {
+				fmt.Println("  GPU:  none (CPU only)")
+			}
+			fmt.Printf("  Disk: %.1f GB free\n", float64(hw.FreeDisk)/(1024*1024*1024))
+			fmt.Printf("  Recommended backend: %s\n", hardware.RecommendBackend(hw))
+			fmt.Printf("  Recommended quantization: %s\n", hardware.RecommendQuantization(hw))
+		}
 	}
 
 	fmt.Println()

@@ -23,10 +23,11 @@ import (
 
 // ServerManager orchestrates the MCP server lifecycle: async
 // initialization (hardware detection, port reuse), lazy model download
-// and llama-server startup, idle timeout monitoring, and signal
-// handling. It encapsulates the closure-based lifecycle that was
-// previously inline in runServer(), making the logic testable and
-// ensuring thread-safe access to the shared llama-srv reference.
+// and llama-server startup, and signal handling. It encapsulates the
+// closure-based lifecycle that was previously inline in runServer(),
+// making the logic testable and ensuring thread-safe access to the
+// shared llama-srv reference. Idle VRAM offloading is delegated to
+// llama-server itself via --sleep-idle-seconds (no Go-level monitor).
 type ServerManager struct {
 	cfg     *config.Config
 	handler *mcptools.ToolHandler
@@ -54,6 +55,8 @@ func NewServerManager(cfg *config.Config, handler *mcptools.ToolHandler, clipMon
 // initialization (hardware detection, port reuse check, asset
 // download) in background goroutines, while the main goroutine blocks
 // on ServeStdio. When the MCP client disconnects, cleanup runs.
+// llama-server manages its own idle VRAM offload via the
+// --sleep-idle-seconds flag, so no Go-level idle monitor is needed.
 func (sm *ServerManager) Run(mcpServer *server.MCPServer) {
 	sm.assetsReady = make(chan struct{})
 
@@ -61,10 +64,6 @@ func (sm *ServerManager) Run(mcpServer *server.MCPServer) {
 	sm.handler.SetRestartFunc(sm.restartLlama)
 
 	go sm.initAsync()
-
-	if sm.cfg.IdleTimeout > 0 {
-		go sm.idleMonitor()
-	}
 
 	go sm.signalHandler()
 
@@ -176,6 +175,7 @@ func (sm *ServerManager) restartLlama(ctx context.Context) error {
 		BinaryName:   llamaBin,
 		KvCacheTypeK: sm.cfg.KvCacheTypeK,
 		KvCacheTypeV: sm.cfg.KvCacheTypeV,
+		IdleTimeout:  sm.cfg.IdleTimeout,
 	})
 	if err := newSrv.Start(ctx); err != nil {
 		return fmt.Errorf("start llama-server: %w", err)
@@ -189,45 +189,6 @@ func (sm *ServerManager) restartLlama(ctx context.Context) error {
 	sm.handler.SetLlamaURL(newSrv.URL())
 	sm.handler.SetLoaded(true)
 	return nil
-}
-
-// idleMonitor runs a ticker that checks for inactivity every 30
-// seconds. When the handler reports no tool calls within the idle
-// timeout window, llama-server is stopped to free GPU memory.
-func (sm *ServerManager) idleMonitor() {
-	idleDuration := time.Duration(sm.cfg.IdleTimeout) * time.Minute
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		if !sm.handler.IsLoaded() {
-			continue
-		}
-		if sm.handler.IdleTime() > idleDuration {
-			log.Printf("Idle timeout (%d min), freeing GPU memory", sm.cfg.IdleTimeout)
-			sm.handler.SetLoaded(false)
-			sm.lock.ForceClear()
-
-			sm.mu.Lock()
-			srv := sm.llamaSrv
-			sm.llamaSrv = nil
-			sm.mu.Unlock()
-
-			if srv != nil {
-				srv.Stop()
-			} else {
-				pid := llamaserver.FindProcessOnPort(sm.cfg.Port)
-				if pid > 0 {
-					proc, err := os.FindProcess(pid)
-					if err == nil {
-						proc.Signal(syscall.SIGTERM)
-						time.Sleep(2 * time.Second)
-						proc.Kill()
-					}
-				}
-			}
-		}
-	}
 }
 
 // signalHandler blocks on SIGINT/SIGTERM and performs a graceful

@@ -29,16 +29,24 @@ type HTTPClient interface {
 
 // ToolHandler manages MCP tool registration, activity tracking for
 // idle timeout, clipboard monitor integration, and delegates
-// llama-server communication to LlamaClient.
+// communication to either LlamaClient (local backend) or
+// GeminiClient (Gemini API backend).
 type ToolHandler struct {
 	customPrompt string
 	ready        chan struct{}
 	clipboardMon clipboard.MonitorInterface
 	client       *LlamaClient
+	geminiClient geminiClient
 
 	mu           sync.Mutex
 	lastActivity time.Time
 	stopFunc     func()
+}
+
+// geminiClient defines the interface used by ToolHandler for Gemini.
+type geminiClient interface {
+	ChatCompletion(ctx context.Context, prompt, dataURI string) (string, error)
+	ChatCompletionMulti(ctx context.Context, prompt string, dataURIs []string) (string, error)
 }
 
 // NewToolHandler creates a ToolHandler. llamaURL may be empty and set
@@ -101,6 +109,10 @@ func (h *ToolHandler) trackActivity() {
 	h.lastActivity = time.Now()
 	h.mu.Unlock()
 }
+
+// SetGeminiClient sets the Gemini API client. When set, all tool
+// calls are routed to Gemini instead of llama-server.
+func (h *ToolHandler) SetGeminiClient(c geminiClient) { h.geminiClient = c }
 
 // SetLlamaURL sets the base URL for the llama-server API endpoint.
 func (h *ToolHandler) SetLlamaURL(url string) { h.client.SetLlamaURL(url) }
@@ -421,12 +433,20 @@ func (h *ToolHandler) handleAnalyzeImage(ctx context.Context, request mcp.CallTo
 	return mcp.NewToolResultText(response), nil
 }
 
-// chatCompletion sends a single-image vision request via the client.
+// chatCompletion sends a single-image vision request via the active
+// backend (GeminiClient or LlamaClient).
 func (h *ToolHandler) chatCompletion(ctx context.Context, prompt, dataURI string) (string, error) {
+	if h.geminiClient != nil {
+		return h.geminiClient.ChatCompletion(ctx, prompt, dataURI)
+	}
 	return h.client.ChatCompletion(ctx, prompt, dataURI)
 }
 
-// chatCompletionMulti sends a multi-image vision request via the client.
+// chatCompletionMulti sends a multi-image vision request via the
+// active backend (GeminiClient or LlamaClient).
 func (h *ToolHandler) chatCompletionMulti(ctx context.Context, prompt string, dataURIs []string) (string, error) {
+	if h.geminiClient != nil {
+		return h.geminiClient.ChatCompletionMulti(ctx, prompt, dataURIs)
+	}
 	return h.client.ChatCompletionMulti(ctx, prompt, dataURIs)
 }
