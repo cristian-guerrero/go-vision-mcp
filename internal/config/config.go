@@ -138,6 +138,10 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
+	if cfg.IdleTimeout <= 0 {
+		cfg.IdleTimeout = 5
+	}
+
 	return &cfg, nil
 }
 

@@ -54,17 +54,16 @@ MCP server starts immediately on STDIO to respond to handshake. Model download a
 
 Tools block on `waitReady()` until model download and config are resolved. Llama-server itself starts on-demand via `chatCompletion()` → `restartFunc`, so no model is loaded if no tool is ever called. Multiple MCP clients share the same llama-server instance.
 
-**Note:** The first tool call after starting the MCP server (or after idle timeout) will be slow because it needs to download the model (1st time only) and start llama-server. Subsequent calls are fast.
+**Note:** The first tool call after starting the MCP server will be slow because it needs to download the model (1st time only) and start llama-server. Subsequent calls are fast. After idle, llama-server transparently reloads the model from disk without a process restart.
 
 ### Idle Timeout (`idle_timeout`)
 
-When `idle_timeout > 0` (default: 5 minutes), a background goroutine monitors tool call activity every 30 seconds. If no tool has been called within the timeout window, llama-server is stopped to free GPU memory. On the next tool call, `chatCompletion()` detects the unloaded state and automatically restarts llama-server before making the request. Set `idle_timeout: 0` in config.json to disable.
+When `idle_timeout > 0` (default: 5 minutes), llama-server is started with `--sleep-idle-seconds N`. After N seconds of no requests, llama-server automatically unloads the model from VRAM while keeping the process alive. On the next tool call, llama-server transparently reloads the model from disk and processes the request. If `idle_timeout` is missing, invalid, or set to 0, it defaults to 5 minutes.
 
-- `main.go` starts the idle monitor goroutine after llama-server is ready
-- `ToolHandler.IdleTime()` returns duration since last tool call
-- `ToolHandler.SetLoaded(false)` marks the server as stopped
-- `ToolHandler.restartFunc` (set by `main.go`) creates a new `llamaserver.Server` instance
-- The restart function updates the closure variable `srv` so the signal handler and idle monitor reference the current instance
+No Go-level idle monitor is needed — llama-server manages its own VRAM:
+- `--sleep-idle-seconds` is passed to llama-server in `llamaserver/server.go:112-114`
+- `-cram 0` is also passed to prevent host-memory KV cache overflow (`llamaserver/server.go:111`)
+- The process is never killed on idle; only on client disconnect or SIGINT/SIGTERM
 
 ## Tool Handler Quirk
 
@@ -115,6 +114,8 @@ Args passed to llama-server:
 - `--jinja` — Use Jinja chat template
 - `--no-webui` — Disable web UI
 - `--reasoning off` — Disable thinking/reasoning mode
+- `-cram 0` — Disable host-memory KV cache overflow (prevents RAM leak)
+- `--sleep-idle-seconds N` — Auto-unload model from VRAM after N seconds idle (configurable via `idle_timeout`)
 
 ## Config Fields
 
