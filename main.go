@@ -30,9 +30,9 @@ import (
 	"github.com/cristian-guerrero/go-vision-mcp/internal/logger"
 	mcptools "github.com/cristian-guerrero/go-vision-mcp/internal/mcp"
 	"github.com/cristian-guerrero/go-vision-mcp/internal/setup"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/updater"
+	"github.com/cristian-guerrero/go-vision-mcp/internal/version"
 )
-
-var version = "1.0.0"
 
 func main() {
 	runConfigure := flag.Bool("configure", false, "Open interactive TUI wizard")
@@ -46,6 +46,7 @@ func main() {
 	manualConfig := flag.Bool("manual", false, "Configure with existing models and llama-server")
 	mcpSetup := flag.Bool("mcp-setup", false, "Auto-configure MCP for installed agents (Kilo Code, OpenCode, PI Agent)")
 	runGeminiCfg := flag.Bool("gemini", false, "Configure Gemini API key (instructions provided)")
+	updateNow := flag.Bool("update", false, "Check and apply update immediately")
 	analyzeClipboard := flag.String("analyze-clipboard", "", "Analyze the clipboard image with a custom prompt")
 	flag.Parse()
 
@@ -54,8 +55,17 @@ func main() {
 		return
 	}
 
+	if *updateNow {
+		runUpdateNow()
+		return
+	}
+
 	if *showVersion {
-		fmt.Println("vision-mcp v" + version)
+		fmt.Println("vision-mcp version", version.Version)
+		up := updater.New(config.InstallDir(), updater.DefaultOwner, updater.DefaultRepo)
+		if pv := up.PendingVersion(); pv != "" {
+			fmt.Printf("Update pending: %s (restart to apply)\n", pv)
+		}
 		return
 	}
 
@@ -638,7 +648,28 @@ func runServer() {
 	}
 	cfg.Save()
 
-	mcpServer := server.NewMCPServer("vision-mcp", "1.0.0")
+	if cfg.AutoUpdate && version.Version != "dev" {
+		up := updater.New(config.InstallDir(), updater.DefaultOwner, updater.DefaultRepo)
+
+		if up.WasJustUpdated() {
+			log.Printf("Update applied successfully (version %s)", version.Version)
+		}
+
+		justApplied := up.ApplyUpdate() == nil
+
+		if !justApplied {
+			if info := up.CheckForUpdate(); info != nil && info.Available {
+				log.Printf("Update available: %s", info.Version)
+				if err := up.DownloadUpdate(info); err != nil {
+					log.Printf("Warning: update download failed: %v", err)
+				} else {
+					log.Printf("Update downloaded (version %s), apply on next restart", info.Version)
+				}
+			}
+		}
+	}
+
+	mcpServer := server.NewMCPServer("vision-mcp", version.Version)
 
 	if cfg.Backend == "gemini" {
 		runGeminiServer(cfg, mcpServer)
@@ -773,6 +804,38 @@ func runAnalyzeClipboard(prompt string) {
 	}
 
 	fmt.Println(result)
+}
+
+// runUpdateNow performs an immediate update check and applies any pending update.
+func runUpdateNow() {
+	up := updater.New(config.InstallDir(), updater.DefaultOwner, updater.DefaultRepo)
+
+	if err := up.ApplyUpdate(); err != nil {
+		log.Printf("No pending update to apply: %v", err)
+	} else {
+		fmt.Println("Update applied successfully! Please restart the binary.")
+		return
+	}
+
+	if version.Version == "dev" {
+		fmt.Println("Dev build -- update checks are disabled.")
+		return
+	}
+
+	info := up.CheckForUpdate()
+	if info == nil || !info.Available {
+		fmt.Println("Already up to date. Current version:", version.Version)
+		return
+	}
+
+	fmt.Printf("Update available: %s (current: %s)\n", info.Version, version.Version)
+	fmt.Println("Downloading...")
+
+	if err := up.DownloadUpdate(info); err != nil {
+		log.Fatalf("Download failed: %v", err)
+	}
+
+	fmt.Println("Download complete. Apply on next restart.")
 }
 
 // displayStatus prints the current config, hardware profile,

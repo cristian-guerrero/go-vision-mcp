@@ -42,10 +42,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
+      - name: Determine build version
+        id: version
+        shell: bash
+        run: |
+          BUILD_NUMBER="$(git rev-list --count HEAD)"
+          echo "name=b${BUILD_NUMBER}" >> $GITHUB_OUTPUT
       - name: Build
         shell: bash
         env:
@@ -54,7 +62,8 @@ jobs:
         run: |
           ext=""
           if [ "${{ matrix.os }}" = "windows" ]; then ext=".exe"; fi
-          go build -ldflags="-s -w" -o "vision-mcp-${{ matrix.os }}-${{ matrix.arch }}${ext}" .
+          go build -ldflags="-s -w -X github.com/cristian-guerrero/go-vision-mcp/internal/version.Version=${{ steps.version.outputs.name }}" \
+            -o "vision-mcp-${{ matrix.os }}-${{ matrix.arch }}${ext}" .
       - uses: actions/upload-artifact@v4
         with:
           name: vision-mcp-${{ matrix.os }}-${{ matrix.arch }}
