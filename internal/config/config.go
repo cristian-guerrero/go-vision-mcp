@@ -41,6 +41,7 @@ type Config struct {
 	ClipboardHistoryLimit   int    `json:"clipboard_history_limit"`
 	ClipboardCacheDir       string `json:"clipboard_cache_dir"`
 	ScreenshotFolder        string `json:"screenshot_folder"`
+	AutoUpdate              bool   `json:"auto_update"`
 
 	// Backend selects the inference engine: "local" (llama-server)
 	// or "gemini" (Google Gemini API). Default: "local".
@@ -66,6 +67,7 @@ type GeminiConfig struct {
 //   - Port: 8001, Context: 8192, Flash attention on
 //   - KV cache quantization: q4_0
 //   - Idle timeout: 5 min, clipboard monitor: enabled (limit: 5)
+//   - AutoUpdate: enabled (checks for new builds on startup)
 func DefaultConfig() Config {
 	return Config{
 		RepoID:                  "unsloth/Qwen3-VL-4B-Instruct-GGUF",
@@ -90,6 +92,7 @@ func DefaultConfig() Config {
 		ClipboardHistoryLimit:   5,
 		ClipboardCacheDir:       "",
 		ScreenshotFolder:        "",
+		AutoUpdate:              true,
 		Backend:                 "local",
 		Gemini: GeminiConfig{
 			Model: "gemini-3.5-flash",

@@ -1,9 +1,10 @@
 .PHONY: build test run lint clean fmt
 
 BINARY_NAME=vision-mcp
+VERSION ?= dev
 
 build:
-	go build -ldflags="-s -w" -o $(BINARY_NAME) .
+	go build -ldflags="-s -w -X github.com/cristian-guerrero/go-vision-mcp/internal/version.Version=$(VERSION)" -o $(BINARY_NAME) .
 
 run:
 	go run .

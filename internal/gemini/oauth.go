@@ -304,9 +304,9 @@ func RunLocalServerFlow(ctx context.Context, clientID string, openBrowser func(u
 		Addr:    fmt.Sprintf("127.0.0.1:%d", port),
 		Handler: mux,
 		// Minimal timeouts to avoid hanging
-		ReadTimeout:    30 * time.Second,
-		WriteTimeout:   5 * time.Second,
-		IdleTimeout:    5 * time.Second,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 5 * time.Second,
+		IdleTimeout:  5 * time.Second,
 	}
 
 	listener, err := net.Listen("tcp", server.Addr)

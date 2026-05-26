@@ -719,7 +719,7 @@ func (w *ManualWizard) viewComplete() string {
 	if w.clipMonOn {
 		s.WriteString(fmt.Sprintf("  %s Clipboard monitoring: Enabled\n", CheckMark))
 		if depMsg := mcptools.CheckClipboardDeps(); depMsg != "" {
-			s.WriteString(WarningStyle.Render("  ! " + depMsg) + "\n\n")
+			s.WriteString(WarningStyle.Render("  ! "+depMsg) + "\n\n")
 		}
 	}
 
